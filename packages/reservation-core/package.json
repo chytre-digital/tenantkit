@@ -8,6 +8,14 @@
     ".": "./src/index.ts",
     "./credits": "./src/credits/index.ts"
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+      "./credits": { "types": "./dist/credits/index.d.ts", "import": "./dist/credits/index.js" }
+    }
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

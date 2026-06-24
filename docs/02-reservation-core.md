@@ -63,7 +63,7 @@ provisional.
 |---|---|---|
 | `@tenantkit/kernel` | the **ports** + `withRoute` runtime, `with-route`, `resolve-claims`, http, validation, rbac, entitlements, tenancy, plugins, i18n, the port‑delegating **email**, the **`fields`** module (configurable field schema, [15](15-configurable-fields-and-settings.md)), and the **db** RLS SQL (`is_member_of()`, `set_updated_at()`, the canonical policy macros) | Postgres + RLS only |
 | `@tenantkit/next` | the **Next.js binding** (route adapter, `cookies()`/`updateSession` seam, `cache()`) | Next.js, kernel |
-| `@tenantkit/adapter-supabase` | the **reference runtime** — `createSupabaseRuntime()` wiring Database/Identity/Session/Authz/Storage ([adapter README](../packages/adapter-supabase/README.md)) | kernel, supabase‑js |
+| `@tenantkit/adapter-supabase` | the **reference runtime** — `createSupabaseRuntime()` wiring Database/Identity/Session/Authz/Storage ([adapter README](https://github.com/chytre-digital/tenantkit-adapter-supabase)) | kernel, supabase‑js |
 | `@tenantkit/adapter-postgres` · `@tenantkit/adapter-authjs` | driver DB + Auth.js identity adapters *(planned)* — same ports, no app change | kernel |
 | `@tenantkit/email-resend` | `EmailProvider` over Resend | kernel |
 | `@tenantkit/payments-stripe` | `PaymentProvider` over Stripe | kernel |
@@ -78,7 +78,7 @@ provisional.
 
 The rest of this doc walks each kernel subsystem with real signatures. Mockup source lives in
 [`packages/kernel/`](../packages/kernel/) (kernel) and [`packages/reservation-core/`](../packages/) (domain);
-the reference runtime is [`packages/adapter-supabase/`](../packages/adapter-supabase/).
+the reference runtime is [`packages/adapter-supabase/`](https://github.com/chytre-digital/tenantkit-adapter-supabase).
 
 > **Ports refactor** ([ADR‑0009](adr/0009-portability-ports-and-adapters.md), [14](14-portability-and-providers.md)):
 > the kernel no longer imports Supabase. `withRoute` now takes a **`runtime: CoreRuntime`** (the bag of ports —
@@ -153,7 +153,7 @@ export interface RouteCtx {
 
 > The usage examples below elide `runtime` for brevity: in practice each app wires the ports once and exports a
 > **pre‑bound** `route = (opts, handler) => withRoute({ ...opts, runtime }, handler)` (see
-> `apps/*/src/server/route.ts` and the [adapter README](../packages/adapter-supabase/README.md)), so call sites
+> `apps/*/src/server/route.ts` and the [adapter README](https://github.com/chytre-digital/tenantkit-adapter-supabase)), so call sites
 > pass only the per‑route options.
 
 **Canonical usage** (a coach taking attendance, gated by nothing special):

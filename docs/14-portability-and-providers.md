@@ -187,7 +187,7 @@ run vendor‑free and fast; (2) "is it *really* decoupled?" stops being a matter
 ## 7. Reference adapters & rollout order
 
 > **Built:** the Supabase reference adapter now exists concretely at
-> [`packages/adapter-supabase/`](../packages/adapter-supabase/) — `createSupabaseRuntime()` plus `Database`,
+> [`packages/adapter-supabase/`](https://github.com/chytre-digital/tenantkit-adapter-supabase) — `createSupabaseRuntime()` plus `Database`,
 > `IdentityProvider`, `SessionStore`, `AuthzStore`, `StorageProvider`, a one‑migration SQL note, and a
 > drop‑in README. Building it sharpened two ports (recorded here): `Database` became **request‑scoped**
 > (`forRequest(req).{user,anon,service}()`, since Supabase derives identity from the cookie JWT — no

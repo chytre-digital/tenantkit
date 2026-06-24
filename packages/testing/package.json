@@ -8,9 +8,18 @@
     ".": "./src/index.ts",
     "./conformance": "./src/conformance.ts"
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+      "./conformance": { "types": "./dist/conformance.d.ts", "import": "./dist/conformance.js" }
+    }
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@tenantkit/kernel": "workspace:*"
