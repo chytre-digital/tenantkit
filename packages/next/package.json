@@ -5,5 +5,5 @@
   "license": "MIT",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "peerDependencies": { "@tenantkit/kernel": "workspace:*", "@tenantkit/adapter-supabase": "workspace:*", "next": ">=15" }
+  "peerDependencies": { "@tenantkit/kernel": "workspace:*", "next": ">=15" }
 }

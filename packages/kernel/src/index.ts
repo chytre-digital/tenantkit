@@ -51,6 +51,7 @@ export {
   internal,
 } from './http/errors'
 export { enforceRateLimit, type RateLimitSpec } from './http/rate-limit'
+export { type CookieAdapter, readOnlyCookies } from './http/cookies'
 
 // --- domain errors ---
 export { DomainError, isDomainError, mapDomainError } from './domain/errors'

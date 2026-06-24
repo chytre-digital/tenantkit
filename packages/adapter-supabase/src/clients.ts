@@ -12,20 +12,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { supabaseEnv } from './env'
+// CookieAdapter is a VENDOR-FREE kernel type — the adapter (and @tenantkit/next) reuse it; neither owns it.
+import { type CookieAdapter, readOnlyCookies } from '@tenantkit/kernel'
 
-/** Minimal cookie port so this file doesn't hard-depend on `next/headers` (the @tenantkit/next binding wires it). */
-export interface CookieAdapter {
-  getAll(): { name: string; value: string }[]
-  setAll(cookies: { name: string; value: string; options?: Record<string, unknown> }[]): void
-}
-
-/** A no-op cookie store for read-only contexts (RSC where cookies can't be set; the proxy refreshes them). */
-export const readOnlyCookies = (all: { name: string; value: string }[]): CookieAdapter => ({
-  getAll: () => all,
-  setAll: () => {
-    /* ignored — Server Component context; middleware refreshes the session */
-  },
-})
+export { type CookieAdapter, readOnlyCookies } // re-export for this adapter's consumers
 
 /** Cookie-bound client: every query runs under the caller's RLS identity (JWT from the cookie). */
 export function userClient(cookies: CookieAdapter): SupabaseClient {
