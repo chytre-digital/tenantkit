@@ -1,0 +1,16 @@
+{
+  "name": "@tenantkit/example-minimal",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Smallest runnable wiring of tenantkit: a Supabase runtime + one withRoute endpoint.",
+  "dependencies": {
+    "@tenantkit/kernel": "workspace:*",
+    "@tenantkit/adapter-supabase": "workspace:*",
+    "@tenantkit/email-resend": "workspace:*",
+    "@tenantkit/next": "workspace:*",
+    "next": "^16.1.6",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  }
+}

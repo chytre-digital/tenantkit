@@ -1,0 +1,26 @@
+{
+  "name": "tenantkit",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Multi-tenant / multi-modal / role-based foundation for reservation SaaS on Next.js + Postgres. BYO auth/email/payments.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "conformance": "vitest run packages/testing",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "turbo run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

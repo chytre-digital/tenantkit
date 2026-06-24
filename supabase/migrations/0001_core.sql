@@ -1,0 +1,303 @@
+-- ILLUSTRATIVE MOCKUP — realizes docs/03-data-model.md §3 (core schema) + §7 (RLS) + docs/04 §1,§5,§7 +
+-- docs/02-reservation-core.md §14 (the SQL building blocks `@reservation-core/db` ships).
+--
+-- Schema `core` = the framework schema (product-agnostic: tenants, members, roles, plugins, email, outbox).
+-- Migration 0001 of 3: core first, then 0002_courses (public.*), then 0003_omluvenky (public.* + the redeem RPC).
+--
+-- THE load-bearing lesson baked in here (doc 03 §7, doc 04 §4): the membership predicate is ONE
+-- SECURITY DEFINER function `core.is_member_of()`; policies call it instead of an inline subquery, so a policy
+-- ON core.memberships that must READ core.memberships does NOT recurse (the "infinite recursion in policy" bug
+-- Restaurio hit). RLS is enabled on EVERY table; default deny.
+
+create schema if not exists core;
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ enums                                                                                                      │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+do $$ begin create type core.app_role          as enum ('staff', 'coach', 'admin', 'owner');        exception when duplicate_object then null; end $$;
+do $$ begin create type core.tenant_status      as enum ('active', 'suspended');                     exception when duplicate_object then null; end $$;
+do $$ begin create type core.guardian_relation  as enum ('parent', 'guardian', 'self');              exception when duplicate_object then null; end $$;
+do $$ begin create type core.platform_role      as enum ('support', 'superadmin');                   exception when duplicate_object then null; end $$;
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ functions — the @reservation-core/db building blocks (doc 02 §14). Created BEFORE the policies use them.   │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+-- Total order on roles (must match rbac/roles.ts roleRank: owner 4 > admin 3 > coach 2 > staff 1).
+create or replace function core.role_rank(p_role text)
+  returns int language sql immutable as $$
+  select case p_role
+    when 'owner' then 4 when 'admin' then 3 when 'coach' then 2 when 'staff' then 1 else 0 end
+$$;
+
+-- THE membership predicate. SECURITY DEFINER + STABLE → reads core.memberships without recursing (doc 03 §7).
+create or replace function core.is_member_of(p_tenant uuid, p_min_role text default 'staff')
+  returns boolean language sql security definer stable
+  set search_path = core, public as $$
+  select exists (
+    select 1 from core.memberships m
+    where m.tenant_id = p_tenant
+      and m.user_id   = auth.uid()
+      and core.role_rank(m.role::text) >= core.role_rank(p_min_role)
+  )
+$$;
+
+-- The caller's own role in a tenant — SECURITY DEFINER companion to is_member_of (doc 04 §5, rank-cap checks).
+create or replace function core.my_role(p_tenant uuid)
+  returns text language sql security definer stable
+  set search_path = core, public as $$
+  select m.role::text from core.memberships m
+  where m.tenant_id = p_tenant and m.user_id = auth.uid()
+$$;
+
+-- Family predicate: may this guardian act for the participant? SECURITY DEFINER (doc 04 §7).
+create or replace function core.guardian_can_act(p_participant uuid)
+  returns boolean language sql security definer stable
+  set search_path = core, public as $$
+  select exists (
+    select 1 from core.guardianships g
+    where g.participant_id = p_participant and g.user_id = auth.uid()
+  )
+$$;
+
+-- Cross-tenant platform-operator predicate — used ONLY by ops routes/policies, never mixed into tenant policies
+-- (doc 04 §6). Kept here for completeness of the core surface.
+create or replace function core.platform_rank(p_level text)
+  returns int language sql immutable as $$
+  select case p_level when 'superadmin' then 2 when 'support' then 1 else 0 end
+$$;
+create or replace function core.is_platform_admin(p_min text default 'support')
+  returns boolean language sql security definer stable
+  set search_path = core, public as $$
+  select exists (
+    select 1 from core.platform_admins pa
+    where pa.user_id = auth.uid()
+      and core.platform_rank(pa.level::text) >= core.platform_rank(p_min)
+  )
+$$;
+
+-- BEFORE-UPDATE trigger fn to maintain updated_at (doc 03 §1). Attached per table below.
+create or replace function core.set_updated_at()
+  returns trigger language plpgsql as $$
+  begin new.updated_at = now(); return new; end;
+$$;
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ tables                                                                                                     │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+-- core.tenants — the studio/organization (doc 03 §3).
+create table if not exists core.tenants (
+  id             uuid primary key default gen_random_uuid(),
+  slug           text not null unique,                       -- ‹slug›.terminar.cz
+  name           text not null,
+  status         core.tenant_status not null default 'active',
+  default_locale text not null default 'cs',
+  tier           text not null default 'free',               -- materialized by the payments plugin (doc 09 §3.3)
+  branding       jsonb not null default '{}',                -- logo_url, colors, from_name, reply_to
+  settings       jsonb not null default '{}',                -- incl. settings.excuseDefaults (doc 08 §12)
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+-- core.profiles — 1:1 with auth.users (doc 03 §3).
+create table if not exists core.profiles (
+  id         uuid primary key references auth.users(id) on delete cascade,
+  full_name  text,
+  locale     text,                                            -- per-user override of tenant default
+  phone      text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- core.memberships — staff ↔ tenant ↔ role (doc 03 §3).
+create table if not exists core.memberships (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  tenant_id  uuid not null references core.tenants(id) on delete cascade,
+  role       core.app_role not null,                          -- staff | coach | admin | owner
+  created_at timestamptz not null default now(),
+  unique (user_id, tenant_id)
+);
+-- Partial-unique-index trick (doc 03 §3, doc 04 §2): EXACTLY one owner per tenant. Promotion = transfer.
+create unique index if not exists one_owner_per_tenant on core.memberships(tenant_id) where role = 'owner';
+create index if not exists memberships_user_idx   on core.memberships(user_id);
+create index if not exists memberships_tenant_idx on core.memberships(tenant_id);
+
+-- core.guardianships — family account ↔ participant (doc 03 §3). participant_id FK added in 0002 after the table
+-- exists; declared here without the cross-schema FK to keep migration order clean.
+create table if not exists core.guardianships (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null references auth.users(id) on delete cascade,  -- the guardian account
+  participant_id uuid not null,                                              -- → public.participants(id) (0002)
+  tenant_id      uuid not null references core.tenants(id),                  -- denormalized for RLS speed
+  relation       core.guardian_relation not null default 'parent',          -- parent | guardian | self
+  is_primary     boolean not null default true,
+  created_at     timestamptz not null default now(),
+  unique (user_id, participant_id)
+);
+create index if not exists guardianships_user_idx        on core.guardianships(user_id);
+create index if not exists guardianships_participant_idx on core.guardianships(participant_id);
+
+-- Plugin tables (doc 03 §3).
+create table if not exists core.plugin_activations (
+  tenant_id   uuid not null references core.tenants(id) on delete cascade,
+  plugin_id   text not null,
+  is_enabled  boolean not null default false,
+  enabled_at  timestamptz,
+  disabled_at timestamptz,
+  primary key (tenant_id, plugin_id)
+);
+create table if not exists core.plugin_settings (
+  tenant_id uuid not null references core.tenants(id) on delete cascade,
+  plugin_id text not null,
+  settings  jsonb not null default '{}',
+  primary key (tenant_id, plugin_id)
+);
+
+-- Cross-cutting (doc 03 §3).
+create table if not exists core.tenant_domains (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references core.tenants(id) on delete cascade,
+  host        text not null unique,
+  verified_at timestamptz
+);
+create table if not exists core.audit_log (
+  id            uuid primary key default gen_random_uuid(),
+  tenant_id     uuid references core.tenants(id) on delete cascade,          -- null for cross-tenant ops (doc 04 §6)
+  actor_user_id uuid references auth.users(id),
+  action        text not null,
+  entity        text,
+  entity_id     uuid,
+  before        jsonb,
+  after         jsonb,
+  at            timestamptz not null default now()
+);
+create table if not exists core.email_events (
+  id        uuid primary key default gen_random_uuid(),
+  tenant_id uuid references core.tenants(id) on delete cascade,
+  resend_id text,
+  "to"      text,
+  template  text,
+  status    text,
+  at        timestamptz not null default now()
+);
+-- Transactional outbox — domain-event fanout to plugins/email (doc 03 §3, doc 09 §5).
+create table if not exists core.outbox (
+  id           uuid primary key default gen_random_uuid(),
+  tenant_id    uuid references core.tenants(id) on delete cascade,
+  event_type   text not null,
+  payload      jsonb not null default '{}',
+  created_at   timestamptz not null default now(),
+  processed_at timestamptz
+);
+create index if not exists outbox_unprocessed_idx on core.outbox(created_at) where processed_at is null;
+
+-- In-app notifications (doc 03 §3 ER + doc 10).
+create table if not exists core.notifications (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid references core.tenants(id) on delete cascade,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  kind       text not null,
+  payload    jsonb not null default '{}',
+  read_at    timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- Platform operators — a SEPARATE grant table, deliberately NOT a high app_role (doc 04 §6).
+create table if not exists core.platform_admins (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  level      core.platform_role not null default 'support',
+  created_at timestamptz not null default now()
+);
+
+-- The atomic provisioning RPC behind provisionTenant (doc 02 §8) — created after the tables it inserts into.
+create or replace function core.create_tenant_with_owner(p_name text, p_slug text, p_owner uuid)
+  returns uuid language plpgsql security definer
+  set search_path = core, public as $$
+  declare v_id uuid;
+  begin
+    insert into core.tenants (name, slug) values (p_name, p_slug) returning id into v_id;
+    insert into core.memberships (user_id, tenant_id, role) values (p_owner, v_id, 'owner');
+    return v_id;
+  end;
+$$;
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ updated_at triggers                                                                                        │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+drop trigger if exists set_updated_at on core.tenants;
+create trigger set_updated_at before update on core.tenants  for each row execute function core.set_updated_at();
+drop trigger if exists set_updated_at on core.profiles;
+create trigger set_updated_at before update on core.profiles for each row execute function core.set_updated_at();
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ RLS — enabled on EVERY table; default deny (doc 03 §7). Membership self-row policies avoid recursion.      │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+alter table core.tenants            enable row level security;
+alter table core.profiles           enable row level security;
+alter table core.memberships        enable row level security;
+alter table core.guardianships      enable row level security;
+alter table core.plugin_activations enable row level security;
+alter table core.plugin_settings    enable row level security;
+alter table core.tenant_domains     enable row level security;
+alter table core.audit_log          enable row level security;
+alter table core.email_events       enable row level security;
+alter table core.outbox             enable row level security;
+alter table core.notifications      enable row level security;
+alter table core.platform_admins    enable row level security;
+
+-- tenants: a member reads their tenant; only admin+ may update its settings/branding (owner does billing/tier).
+create policy tenants_read  on core.tenants for select using (core.is_member_of(id));
+create policy tenants_write on core.tenants for update
+  using (core.is_member_of(id, 'admin')) with check (core.is_member_of(id, 'admin'));
+
+-- profiles: a user sees/edits ONLY their own profile row (doc 02 §7 bootstrap).
+create policy profiles_self_read   on core.profiles for select using (id = auth.uid());
+create policy profiles_self_upsert on core.profiles for insert with check (id = auth.uid());
+create policy profiles_self_update on core.profiles for update using (id = auth.uid()) with check (id = auth.uid());
+
+-- memberships: SELF-ROW reads only (doc 03 §7, doc 04 §5) — cross-member admin reads go via SECURITY DEFINER
+-- RPC / service role. Writes are rank-capped: an actor may target only a role strictly below their own, never
+-- 'owner' (owner transfer is its own RPC). is_member_of()/my_role() are SECURITY DEFINER → no recursion.
+create policy memberships_self_read on core.memberships for select using (user_id = auth.uid());
+create policy memberships_manage on core.memberships for all
+  using      (core.is_member_of(tenant_id, 'admin'))
+  with check (
+    core.is_member_of(tenant_id, 'admin')
+    and role <> 'owner'
+    and core.role_rank(role::text) < core.role_rank(core.my_role(tenant_id))
+  );
+
+-- guardianships: a guardian sees their own links; a tenant admin may read the tenant's links (support).
+create policy guardianships_self_read on core.guardianships for select using (user_id = auth.uid());
+create policy guardianships_admin_read on core.guardianships for select using (core.is_member_of(tenant_id, 'admin'));
+
+-- plugin activation/settings: admin+ manage (plugins:manage, doc 04 §3); any member may read which are on.
+create policy plugin_activations_read  on core.plugin_activations for select using (core.is_member_of(tenant_id));
+create policy plugin_activations_write on core.plugin_activations for all
+  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+create policy plugin_settings_read  on core.plugin_settings for select using (core.is_member_of(tenant_id, 'admin'));
+create policy plugin_settings_write on core.plugin_settings for all
+  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+
+-- tenant_domains: admin+ (custom domains are a paid, owner/admin concern).
+create policy tenant_domains_rw on core.tenant_domains for all
+  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+
+-- audit_log / email_events: read-only to admin+; writes happen in-tx via triggers/use-cases or service role.
+create policy audit_log_read    on core.audit_log    for select using (core.is_member_of(tenant_id, 'admin'));
+create policy email_events_read on core.email_events for select using (core.is_member_of(tenant_id, 'admin'));
+
+-- outbox: NO ordinary-caller policies — it is written in-tx by use-cases (the caller's own RLS lets the INSERT
+-- happen because the use-case runs as the caller) and drained by the dispatcher via the service role. Default
+-- deny on select keeps the event stream private. (An explicit insert policy for members of the row's tenant:)
+create policy outbox_member_insert on core.outbox for insert with check (tenant_id is null or core.is_member_of(tenant_id));
+
+-- notifications: a user reads/updates only their own.
+create policy notifications_self_read   on core.notifications for select using (user_id = auth.uid());
+create policy notifications_self_update on core.notifications for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- platform_admins: visible only to platform operators themselves (doc 04 §6) — never to tenant members.
+create policy platform_admins_read on core.platform_admins for select using (core.is_platform_admin('support'));

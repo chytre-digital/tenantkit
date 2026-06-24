@@ -1,0 +1,10 @@
+{
+  "name": "@tenantkit/email-resend",
+  "version": "0.1.0",
+  "description": "Resend EmailProvider adapter for the @tenantkit/kernel ports. The transport the kernel's sendEmail() delegates to.",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "peerDependencies": { "@tenantkit/kernel": "workspace:*" },
+  "dependencies": { "resend": "^6.12.4" }
+}

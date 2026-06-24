@@ -1,0 +1,24 @@
+{
+  "name": "@tenantkit/testing",
+  "version": "0.1.0",
+  "description": "The in-memory adapter + port conformance suite for the tenantkit kernel — the 'is it really decoupled?' honesty check (docs/14 §6.4). Vendor-free CoreRuntime for fast tests + reusable vitest suites every adapter must pass.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./conformance": "./src/conformance.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "@tenantkit/kernel": "workspace:*",
+    "vitest": ">=3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  },
+  "_note": "Realizes docs/14-portability-and-providers.md §6.4 (conformance suite = honesty check) and §7 (in-memory adapter, rollout order #2). No vendor SDK imports anywhere — that is the whole point: the kernel runs against this with zero Supabase/Resend/Stripe. The Supabase adapter runs the SAME conformance suites against a throwaway Supabase project in an integration lane (docs/14 §8 test-matrix note)."
+}

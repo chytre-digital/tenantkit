@@ -1,0 +1,15 @@
+{
+  "name": "@reservation-core/domain",
+  "version": "0.1.0",
+  "description": "Layer-2 reservation domain on the @tenantkit/* kernel: courses, sessions, capacity, and the omluvenka (excuse → makeup-credit → redeem) engine. Vendor-free, pure domain logic.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./credits": "./src/credits/index.ts"
+  },
+  "peerDependencies": {
+    "@tenantkit/kernel": "workspace:*"
+  },
+  "_note": "Two-layer split per ADR-0010. Layer 1 = @tenantkit/kernel (generic multi-tenant backbone). Layer 2 = this (the reservation domain). The product app (Termínář) composes both + adapters + plugins."
+}

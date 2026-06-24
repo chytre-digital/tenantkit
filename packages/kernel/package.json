@@ -1,0 +1,33 @@
+{
+  "//": "ILLUSTRATIVE MOCKUP — realizes docs/02-reservation-core.md. In the real monorepo this single package is split into @reservation-core/{server,domain,i18n,db,plugins,ui-mantine,testing} (see doc 02 §3). Here everything ships under one name so the shape is readable in one tree.",
+  "name": "@tenantkit/kernel",
+  "version": "0.1.0-mockup",
+  "description": "Headless, multi-tenant / multi-modal / role-based foundation for reservation-style products on Next.js + Supabase + Resend. Mockup of the framework described in docs/02-reservation-core.md.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "@supabase/ssr": "^0.5.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "zod": "^4.0.0",
+    "resend": "^4.0.0",
+    "next-intl": "^4.0.0"
+  },
+  "peerDependencies": {
+    "next": ">=16",
+    "react": ">=19"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0",
+    "server-only": "^0.0.1"
+  }
+}
