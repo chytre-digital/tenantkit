@@ -1,4 +1,7 @@
+# Phase 0 (roadmap §2): the vendor-free CORE is hardened first, bottom-up. The vendor adapters
+# (adapter-supabase, email-resend, payments-stripe, next, i18n) and the app join the workspace as
+# each is productionized in later increments — keeps the foundation install lean and provably green.
 packages:
-  - 'packages/*'
-  - 'plugins/*'
-  - 'examples/*'
+  - 'packages/kernel'
+  - 'packages/reservation-core'
+  - 'packages/testing'

@@ -6,7 +6,7 @@
  * both reference apps' `withAuthRoute`, made tenant-agnostic.
  *
  * PORTS REFACTOR (docs/14): `withRoute` now consumes a `CoreRuntime` (the ports bag) instead of importing
- * Supabase. `runtime` is a REQUIRED option — the app wires it once (see `apps/*/src/server/route.ts`) and
+ * Supabase. `runtime` is a REQUIRED option — the app wires it once (see `apps/<app>/src/server/route.ts`) and
  * pre-binds a thin `route(opts, handler)`. The pipeline reaches the DB through `runtime.db.forRequest(req)`,
  * identity through `runtime.identity` (via `resolveClaims`), and the plugin/entitlement reads through
  * `runtime.authz`. The handler receives `ctx.db: RequestDb` (the three role-scoped handles) — NOT a vendor client.
@@ -49,7 +49,7 @@ import { assertPluginEnabled } from '../plugins/guard'
 import type { PluginId } from '../plugins/define-plugin'
 import { enforceRateLimit, type RateLimitSpec } from '../http/rate-limit'
 import { resolveLocale } from './resolve-locale'
-import type { Locale } from '../i18n/create-i18n'
+import type { Locale } from '../i18n/locale'
 
 export type Audience = 'public' | 'staff' | 'family'
 
@@ -127,7 +127,7 @@ export function withRoute<TArgs extends unknown[]>(
       const db = runtime.db.forRequest(req)
 
       // 2. Locale (cookie/header). No URL segment here — that's the page layer's concern.
-      const locale = await resolveLocale()
+      const locale = resolveLocale(req)
 
       const ctx: RouteCtx = {
         runtime,
@@ -210,8 +210,8 @@ async function resolveStaffContext<TArgs extends unknown[]>(
 
   // Resolution order: explicit tenantFrom → active-tenant cookie fallback (doc 02 §8).
   let tenantId: string | null = null
-  if (opts.tenantFrom) tenantId = await resolveTenant(opts.tenantFrom, args)
-  tenantId ??= await resolveActiveTenant(claims)
+  if (opts.tenantFrom) tenantId = await resolveTenant(opts.tenantFrom, args, ctx.req)
+  tenantId ??= resolveActiveTenant(claims, ctx.req)
 
   if (!tenantId) {
     if (requireTenant) throw forbidden('NOT_A_MEMBER', 'No tenant resolved for this request')

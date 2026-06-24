@@ -5,7 +5,7 @@
  * construction (doc 10 §1). A missing locale falls back to the tenant default, then `cs`. Bodies are authored
  * with React Email (or MJML) and rendered to HTML with a plain-text part alongside.
  */
-import type { Locale } from '../i18n/create-i18n'
+import type { Locale } from '../i18n/locale'
 
 export interface EmailRenderInput<TData> {
   data: TData

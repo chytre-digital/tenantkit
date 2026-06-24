@@ -1,0 +1,12 @@
+{
+  "name": "@tenantkit/i18n",
+  "version": "0.1.0",
+  "description": "next-intl wiring for tenantkit: createI18n() → routing/request/navigation. The framework-bound i18n seam (kept out of the vendor-free kernel).",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "peerDependencies": { "next": ">=15", "next-intl": ">=4" },
+  "dependencies": { "next-intl": "^4.7.0" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

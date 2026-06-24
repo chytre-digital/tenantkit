@@ -14,7 +14,7 @@
  *     baked into the rendered message's `from`/`replyTo` before it leaves the kernel.
  */
 import type { CoreRuntime } from '../ports'
-import type { Locale } from '../i18n/create-i18n'
+import type { Locale } from '../i18n/locale'
 import type { EmailTemplate, TenantBranding } from './define-email'
 
 export interface SendEmailInput<TData = Record<string, unknown>> {

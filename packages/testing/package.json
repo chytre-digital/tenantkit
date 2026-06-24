@@ -10,15 +10,16 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tenantkit/kernel": "workspace:*"
   },
   "peerDependencies": {
-    "@tenantkit/kernel": "workspace:*",
     "vitest": ">=3"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "vitest": "^3.0.0"
-  },
-  "_note": "Realizes docs/14-portability-and-providers.md §6.4 (conformance suite = honesty check) and §7 (in-memory adapter, rollout order #2). No vendor SDK imports anywhere — that is the whole point: the kernel runs against this with zero Supabase/Resend/Stripe. The Supabase adapter runs the SAME conformance suites against a throwaway Supabase project in an integration lane (docs/14 §8 test-matrix note)."
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
 }

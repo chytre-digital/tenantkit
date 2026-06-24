@@ -10,8 +10,8 @@
  * `provisionTenant` wraps the `create_tenant_with_owner` SECURITY DEFINER RPC to dodge the RLS chicken-and-egg
  * of "insert a tenant you're not yet a member of" (doc 02 §8).
  */
-import { cookies, headers } from 'next/headers'
 import { forbidden } from '../http/errors'
+import { readCookie } from '../i18n/locale'
 import type { CoreRuntime } from '../ports'
 import type { AuthContext, Membership } from '../auth/resolve-claims'
 
@@ -64,15 +64,16 @@ export type TenantFrom<TArgs extends unknown[] = unknown[]> =
 export async function resolveTenant<TArgs extends unknown[]>(
   from: TenantFrom<TArgs>,
   args: TArgs,
+  req: Request,
 ): Promise<string | null> {
   if (typeof from === 'function') return from(...args)
   switch (from) {
     case 'param':
       return tenantIdFromParam(args)
     case 'host':
-      return tenantIdFromHost()
+      return tenantIdFromHost(req)
     case 'cookie':
-      return readActiveTenantCookie()
+      return readActiveTenantCookie(req)
     default:
       return null
   }
@@ -93,31 +94,27 @@ function tenantIdFromParam(args: unknown[]): string | null {
  * into a header (doc 01 §7); a custom domain is looked up in `core.tenant_domains`. Slug→id resolution is a // …
  * cheap cached read; sketched here as reading the header the middleware set.
  */
-async function tenantIdFromHost(): Promise<string | null> {
-  const h = await headers()
-  // proxy.ts sets these after parsing host/path (doc 01 §7).
-  return h.get('x-tenant-id') ?? null
+function tenantIdFromHost(req: Request): string | null {
+  // proxy.ts sets this header after parsing host/path (doc 01 §7).
+  return req.headers.get('x-tenant-id') ?? null
 }
 
-/** Read the active-tenant cookie (raw). Validate against memberships before trusting — see `assertMember`. */
-export async function readActiveTenantCookie(): Promise<string | null> {
-  const store = await cookies()
-  return store.get(ACTIVE_TENANT_COOKIE)?.value ?? null
+/** Read the active-tenant cookie (raw) off the Request. Validate against memberships before trusting. */
+export function readActiveTenantCookie(req: Request): string | null {
+  return readCookie(req.headers.get('cookie'), ACTIVE_TENANT_COOKIE)
 }
 
 /**
- * Set the active-tenant cookie. httpOnly + SameSite=Lax (doc 05 §2a). The caller MUST have validated that the
- * tenant is in the user's memberships first; `POST /api/auth/switch-tenant` does exactly that.
+ * Append the active-tenant `Set-Cookie` to a Response (framework-agnostic). httpOnly + SameSite=Lax (doc 05 §2a).
+ * The caller MUST have validated the tenant is in the user's memberships first; `POST /api/auth/switch-tenant`
+ * does exactly that.
  */
-export async function setActiveTenantCookie(tenantId: string): Promise<void> {
-  const store = await cookies()
-  store.set(ACTIVE_TENANT_COOKIE, tenantId, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 365,
-  })
+export function setActiveTenantCookie(res: Response, tenantId: string): void {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  res.headers.append(
+    'set-cookie',
+    `${ACTIVE_TENANT_COOKIE}=${encodeURIComponent(tenantId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}${secure}`,
+  )
 }
 
 /**
@@ -125,8 +122,8 @@ export async function setActiveTenantCookie(tenantId: string): Promise<void> {
  * membership (a cookie pointing at a tenant the user left silently falls back — doc 05 §2a). Null when the
  * user has no memberships at all (→ onboarding).
  */
-export async function resolveActiveTenant(claims: AuthContext): Promise<string | null> {
-  const cookieValue = await readActiveTenantCookie()
+export function resolveActiveTenant(claims: AuthContext, req: Request): string | null {
+  const cookieValue = readActiveTenantCookie(req)
   const isMember = (id: string | null) => !!id && claims.memberships.some((m) => m.tenantId === id)
   if (isMember(cookieValue)) return cookieValue
   return claims.memberships[0]?.tenantId ?? null

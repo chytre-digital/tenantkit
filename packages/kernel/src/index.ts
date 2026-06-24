@@ -8,7 +8,7 @@
  * PORTS REFACTOR (docs/14): the kernel is now vendor-neutral. It exports the PORTS (`CoreRuntime` and friends)
  * that adapters implement — there are NO Supabase client exports here anymore (those moved to
  * `@tenantkit/adapter-supabase`). An app wires a `CoreRuntime` once and pre-binds `withRoute` (see
- * `apps/*/src/server/route.ts`).
+ * `apps/<app>/src/server/route.ts`).
  */
 
 // --- env ---
@@ -158,8 +158,14 @@ export {
   type TenantBranding,
 } from './email/define-email'
 
-// --- i18n ---
-export { createI18n, type I18n, type CreateI18nOptions, type Locale } from './i18n/create-i18n'
+// --- i18n (vendor-free locale type; the next-intl factory `createI18n` lives in @tenantkit/i18n) ---
+export {
+  type Locale,
+  DEFAULT_LOCALE,
+  SUPPORTED_LOCALES,
+  isSupportedLocale,
+  readCookie,
+} from './i18n/locale'
 
 // --- db (SQL building blocks) ---
 export {

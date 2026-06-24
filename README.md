@@ -4,7 +4,7 @@
 > **Next.js + Postgres**. Bring your own auth, email, and payments. Tenant isolation is enforced in the
 > database (RLS), not just the app.
 
-[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) · `DRAFT v0.1` — design spec + reference mockup, not yet production.
+[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) · `v0.1` — **Phase 0 underway**: the vendor-free core (`@tenantkit/kernel` + `@reservation-core/domain` + `@tenantkit/testing`) is real, strict‑typechecked, and green (45 tests incl. the port conformance suite + a sign‑in→create‑tenant→CRUD‑course vertical slice under RLS). Vendor adapters + the app are the next increments ([roadmap](docs/13-roadmap-and-milestones.md)).
 
 `tenantkit` is the open‑source framework extracted from two real products (NaLekci.cz, Restaurio) that had
 independently re‑implemented the same plumbing — auth, tenancy, roles, HTTP/validation, entitlements, email,

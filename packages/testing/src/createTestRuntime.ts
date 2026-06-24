@@ -14,7 +14,12 @@ import type { CoreRuntime } from '@tenantkit/kernel'
 import { type AdvanceableClock, createCounterIdGen, createFixedClock } from './memory/clock'
 import { createMemoryDatabase, MEMORY_ACTOR_HEADER, MEMORY_SERVICE_ACTOR } from './memory/database'
 import { createMemoryEmail, type MemoryEmailProvider, type SentEmail } from './memory/email'
-import { createMemoryIdentity, createMemorySessionStore } from './memory/identity'
+import {
+  createMemoryIdentity,
+  createMemorySessionStore,
+  MEMORY_SESSION_COOKIE,
+  encodeSessionToken,
+} from './memory/identity'
 import { createMemoryAuthzStore } from './memory/authz'
 import { createMemoryPayments, type MemoryPaymentProvider } from './memory/payments'
 import { type MemorySeed, MemoryStore } from './memory/store'
@@ -77,6 +82,13 @@ export function createTestRuntime(seed: MemorySeed = {}): TestRuntime {
   const withActor = (actor: string, init?: RequestInit): Request => {
     const headers = new Headers(init?.headers)
     headers.set(MEMORY_ACTOR_HEADER, actor)
+    // Also carry the session cookie so the IdentityProvider / SessionStore resolve the SAME user the DB does —
+    // a request "as user X" is authenticated across EVERY port, mirroring a real JWT-bearing request.
+    if (actor !== MEMORY_SERVICE_ACTOR) {
+      const sessionCookie = `${MEMORY_SESSION_COOKIE}=${encodeSessionToken(actor)}`
+      const existing = headers.get('cookie')
+      headers.set('cookie', existing ? `${existing}; ${sessionCookie}` : sessionCookie)
+    }
     return new Request(DEFAULT_URL, { ...init, headers })
   }
 
