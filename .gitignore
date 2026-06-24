@@ -9,3 +9,6 @@ coverage/
 .env.*.local
 .DS_Store
 *.log
+
+# npm publish auth helper (token via ${NPM_TOKEN}); recreated by CI
+.npmrc

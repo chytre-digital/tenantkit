@@ -9,7 +9,7 @@
  * in an integration lane; this proves the contract with zero vendors.
  */
 import { describe, it, expect } from 'vitest'
-import { withRoute, jsonOk, provisionTenant } from '@tenantkit/kernel'
+import { withRoute, jsonOk, provisionTenant } from '@deverjak/tenantkit-kernel'
 import { createTestRuntime } from '../createTestRuntime'
 
 describe('Phase 0 vertical slice — sign in → create tenant → create + list course, under RLS', () => {

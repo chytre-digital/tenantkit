@@ -1,5 +1,5 @@
 {
-  "name": "@tenantkit/kernel",
+  "name": "@deverjak/tenantkit-kernel",
   "version": "0.1.0",
   "description": "Headless, vendor-free multi-tenant / multi-modal / role-based foundation: ports, withRoute, tenancy, RBAC, entitlements, plugin SDK, http, validation, fields, the RLS SQL. Bring your own auth/email/payments via adapters.",
   "license": "MIT",

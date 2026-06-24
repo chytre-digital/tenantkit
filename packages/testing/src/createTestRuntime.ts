@@ -10,7 +10,7 @@
  * also hands back small request helpers so a test can act AS a seeded user — wiring identity → RLS end-to-end:
  * the `MemoryDatabase` reads the actor from a header these helpers set.
  */
-import type { CoreRuntime } from '@tenantkit/kernel'
+import type { CoreRuntime } from '@deverjak/tenantkit-kernel'
 import { type AdvanceableClock, createCounterIdGen, createFixedClock } from './memory/clock'
 import { createMemoryDatabase, MEMORY_ACTOR_HEADER, MEMORY_SERVICE_ACTOR } from './memory/database'
 import { createMemoryEmail, type MemoryEmailProvider, type SentEmail } from './memory/email'

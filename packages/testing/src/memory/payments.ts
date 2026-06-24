@@ -13,7 +13,7 @@
  * The real `@tenantkit/payments-stripe` maps Stripe's signed events to this SAME `PaymentEvent` union — so the
  * plugin code under test is byte-identical whether it runs on the mock or on Stripe.
  */
-import type { PaymentEvent, PaymentProvider } from '@tenantkit/kernel'
+import type { PaymentEvent, PaymentProvider } from '@deverjak/tenantkit-kernel'
 
 /** A recorded checkout intent (subscription or one-off course payment) for assertions. */
 export type CheckoutIntent =

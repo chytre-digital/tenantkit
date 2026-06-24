@@ -8,7 +8,7 @@
  * the SAME store the `Database` filters means a membership seeded for RLS is the SAME row `getMemberships`
  * returns — no drift between "what authz sees" and "what RLS enforces".
  */
-import type { AuthzStore, ProfileRow } from '@tenantkit/kernel'
+import type { AuthzStore, ProfileRow } from '@deverjak/tenantkit-kernel'
 import type { MemoryStore, ProfileRecord } from './store'
 
 export class MemoryAuthzStore implements AuthzStore {

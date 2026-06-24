@@ -15,7 +15,7 @@
  * `SessionStore` reads/writes them as a cookie; the test runtime turns the cookie back into the actor header
  * the `MemoryDatabase` reads — closing the identity → RLS loop end-to-end (doc 14 §3.1).
  */
-import type { AuthSession, AuthUser, IdentityProvider, SessionStore } from '@tenantkit/kernel'
+import type { AuthSession, AuthUser, IdentityProvider, SessionStore } from '@deverjak/tenantkit-kernel'
 import type { AuthUserRow, MemoryStore } from './store'
 
 /** Cookie name the session token is stored under (the in-memory analogue of `sb-…-auth-token`). */

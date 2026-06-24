@@ -12,7 +12,7 @@
  *                              doc 10 §1 — a failed email must not break enrollment) — still recorded, with `.error`.
  *   • `skipNext()` armed      → `{ status: 'skipped', reason }` (models the "no API key" local-dev path).
  */
-import type { EmailMessage, EmailProvider, EmailSendResult } from '@tenantkit/kernel'
+import type { EmailMessage, EmailProvider, EmailSendResult } from '@deverjak/tenantkit-kernel'
 
 /** A captured send: the message plus the result the provider returned for it (for end-to-end assertions). */
 export interface SentEmail {

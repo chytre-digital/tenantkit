@@ -9,7 +9,7 @@
  *   • `createCounterIdGen(seed?)` — monotonic, prefix-tagged ids (`uuid` → `0000…0001`, `token` → `tok_1`),
  *     so snapshots/assertions read the same on every run. No randomness ⇒ no flake.
  */
-import type { Clock, IdGen } from '@tenantkit/kernel'
+import type { Clock, IdGen } from '@deverjak/tenantkit-kernel'
 
 /** A `Clock` you can move forward by hand — the test's grip on "now". */
 export interface AdvanceableClock extends Clock {

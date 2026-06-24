@@ -1,5 +1,5 @@
 {
-  "name": "@tenantkit/testing",
+  "name": "@deverjak/tenantkit-testing",
   "version": "0.1.0",
   "description": "The in-memory adapter + port conformance suite for the tenantkit kernel — the 'is it really decoupled?' honesty check (docs/14 §6.4). Vendor-free CoreRuntime for fast tests + reusable vitest suites every adapter must pass.",
   "license": "MIT",
@@ -22,7 +22,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@tenantkit/kernel": "workspace:*"
+    "@deverjak/tenantkit-kernel": "workspace:*"
   },
   "peerDependencies": {
     "vitest": ">=3"

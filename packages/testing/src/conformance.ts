@@ -7,7 +7,7 @@
  * Each suite takes a `makeHarness` factory so it can seed + act as users in an adapter-agnostic way.
  */
 import { describe, expect, it } from 'vitest'
-import type { CoreRuntime } from '@tenantkit/kernel'
+import type { CoreRuntime } from '@deverjak/tenantkit-kernel'
 
 /** The minimal contract an adapter provides so the suites can seed data + act as a user. */
 export interface ConformanceHarness {

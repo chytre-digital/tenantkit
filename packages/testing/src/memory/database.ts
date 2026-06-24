@@ -18,7 +18,7 @@
  *     filtered the same way. Driver adapters implement real `query()`; this models that capability.
  *   • `tx()` runs inline (no real BEGIN/COMMIT needed in a single-process Map store), holding the actor.
  */
-import type { Database, RequestDb, ScopedDb } from '@tenantkit/kernel'
+import type { Database, RequestDb, ScopedDb } from '@deverjak/tenantkit-kernel'
 import { type Actor, MemoryStore } from './store'
 
 /** The request header the in-memory runtime uses to carry the resolved actor id into `Database.forRequest`. */
