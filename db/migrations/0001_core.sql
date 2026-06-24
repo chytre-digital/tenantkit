@@ -23,6 +23,18 @@ do $$ begin create type core.platform_role      as enum ('support', 'superadmin'
 -- │ functions — the @reservation-core/db building blocks (doc 02 §14). Created BEFORE the policies use them.   │
 -- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
+-- The PORTABILITY seam (doc 14 §3.1): the caller's id, resolved from EITHER the Supabase/PostgREST
+-- request.jwt.claims GUC OR a plain app.user_id GUC a direct-driver adapter sets with SET LOCAL. EVERY predicate
+-- below calls THIS — never a vendor's auth.uid() — so the IDENTICAL RLS runs on Supabase, Neon, RDS, or a laptop
+-- Postgres. An adapter MAY override it (the Supabase adapter ships `... as $$ select auth.uid() $$`, optional).
+create or replace function core.current_user_id()
+  returns uuid language sql stable as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::json ->> 'sub',  -- Supabase / PostgREST path
+    nullif(current_setting('app.user_id', true), '')                          -- direct-driver path (SET LOCAL)
+  )::uuid
+$$;
+
 -- Total order on roles (must match rbac/roles.ts roleRank: owner 4 > admin 3 > coach 2 > staff 1).
 create or replace function core.role_rank(p_role text)
   returns int language sql immutable as $$
@@ -37,7 +49,7 @@ create or replace function core.is_member_of(p_tenant uuid, p_min_role text defa
   select exists (
     select 1 from core.memberships m
     where m.tenant_id = p_tenant
-      and m.user_id   = auth.uid()
+      and m.user_id   = core.current_user_id()
       and core.role_rank(m.role::text) >= core.role_rank(p_min_role)
   )
 $$;
@@ -47,7 +59,7 @@ create or replace function core.my_role(p_tenant uuid)
   returns text language sql security definer stable
   set search_path = core, public as $$
   select m.role::text from core.memberships m
-  where m.tenant_id = p_tenant and m.user_id = auth.uid()
+  where m.tenant_id = p_tenant and m.user_id = core.current_user_id()
 $$;
 
 -- Family predicate: may this guardian act for the participant? SECURITY DEFINER (doc 04 §7).
@@ -56,7 +68,7 @@ create or replace function core.guardian_can_act(p_participant uuid)
   set search_path = core, public as $$
   select exists (
     select 1 from core.guardianships g
-    where g.participant_id = p_participant and g.user_id = auth.uid()
+    where g.participant_id = p_participant and g.user_id = core.current_user_id()
   )
 $$;
 
@@ -71,7 +83,7 @@ create or replace function core.is_platform_admin(p_min text default 'support')
   set search_path = core, public as $$
   select exists (
     select 1 from core.platform_admins pa
-    where pa.user_id = auth.uid()
+    where pa.user_id = core.current_user_id()
       and core.platform_rank(pa.level::text) >= core.platform_rank(p_min)
   )
 $$;
@@ -100,9 +112,9 @@ create table if not exists core.tenants (
   updated_at     timestamptz not null default now()
 );
 
--- core.profiles — 1:1 with auth.users (doc 03 §3).
+-- core.profiles — 1:1 with the identity provider's user id; FK-less so any IdP works (doc 03 §3).
 create table if not exists core.profiles (
-  id         uuid primary key references auth.users(id) on delete cascade,
+  id         uuid primary key,
   full_name  text,
   locale     text,                                            -- per-user override of tenant default
   phone      text,
@@ -114,7 +126,7 @@ create table if not exists core.profiles (
 -- core.memberships — staff ↔ tenant ↔ role (doc 03 §3).
 create table if not exists core.memberships (
   id         uuid primary key default gen_random_uuid(),
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null,
   tenant_id  uuid not null references core.tenants(id) on delete cascade,
   role       core.app_role not null,                          -- staff | coach | admin | owner
   created_at timestamptz not null default now(),
@@ -129,7 +141,7 @@ create index if not exists memberships_tenant_idx on core.memberships(tenant_id)
 -- exists; declared here without the cross-schema FK to keep migration order clean.
 create table if not exists core.guardianships (
   id             uuid primary key default gen_random_uuid(),
-  user_id        uuid not null references auth.users(id) on delete cascade,  -- the guardian account
+  user_id        uuid not null,  -- the guardian account
   participant_id uuid not null,                                              -- → public.participants(id) (0002)
   tenant_id      uuid not null references core.tenants(id),                  -- denormalized for RLS speed
   relation       core.guardian_relation not null default 'parent',          -- parent | guardian | self
@@ -166,7 +178,7 @@ create table if not exists core.tenant_domains (
 create table if not exists core.audit_log (
   id            uuid primary key default gen_random_uuid(),
   tenant_id     uuid references core.tenants(id) on delete cascade,          -- null for cross-tenant ops (doc 04 §6)
-  actor_user_id uuid references auth.users(id),
+  actor_user_id uuid,
   action        text not null,
   entity        text,
   entity_id     uuid,
@@ -198,7 +210,7 @@ create index if not exists outbox_unprocessed_idx on core.outbox(created_at) whe
 create table if not exists core.notifications (
   id         uuid primary key default gen_random_uuid(),
   tenant_id  uuid references core.tenants(id) on delete cascade,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null,
   kind       text not null,
   payload    jsonb not null default '{}',
   read_at    timestamptz,
@@ -207,7 +219,7 @@ create table if not exists core.notifications (
 
 -- Platform operators — a SEPARATE grant table, deliberately NOT a high app_role (doc 04 §6).
 create table if not exists core.platform_admins (
-  user_id    uuid primary key references auth.users(id) on delete cascade,
+  user_id    uuid primary key,
   level      core.platform_role not null default 'support',
   created_at timestamptz not null default now()
 );
@@ -254,14 +266,14 @@ create policy tenants_write on core.tenants for update
   using (core.is_member_of(id, 'admin')) with check (core.is_member_of(id, 'admin'));
 
 -- profiles: a user sees/edits ONLY their own profile row (doc 02 §7 bootstrap).
-create policy profiles_self_read   on core.profiles for select using (id = auth.uid());
-create policy profiles_self_upsert on core.profiles for insert with check (id = auth.uid());
-create policy profiles_self_update on core.profiles for update using (id = auth.uid()) with check (id = auth.uid());
+create policy profiles_self_read   on core.profiles for select using (id = core.current_user_id());
+create policy profiles_self_upsert on core.profiles for insert with check (id = core.current_user_id());
+create policy profiles_self_update on core.profiles for update using (id = core.current_user_id()) with check (id = core.current_user_id());
 
 -- memberships: SELF-ROW reads only (doc 03 §7, doc 04 §5) — cross-member admin reads go via SECURITY DEFINER
 -- RPC / service role. Writes are rank-capped: an actor may target only a role strictly below their own, never
 -- 'owner' (owner transfer is its own RPC). is_member_of()/my_role() are SECURITY DEFINER → no recursion.
-create policy memberships_self_read on core.memberships for select using (user_id = auth.uid());
+create policy memberships_self_read on core.memberships for select using (user_id = core.current_user_id());
 create policy memberships_manage on core.memberships for all
   using      (core.is_member_of(tenant_id, 'admin'))
   with check (
@@ -271,7 +283,7 @@ create policy memberships_manage on core.memberships for all
   );
 
 -- guardianships: a guardian sees their own links; a tenant admin may read the tenant's links (support).
-create policy guardianships_self_read on core.guardianships for select using (user_id = auth.uid());
+create policy guardianships_self_read on core.guardianships for select using (user_id = core.current_user_id());
 create policy guardianships_admin_read on core.guardianships for select using (core.is_member_of(tenant_id, 'admin'));
 
 -- plugin activation/settings: admin+ manage (plugins:manage, doc 04 §3); any member may read which are on.
@@ -296,8 +308,8 @@ create policy email_events_read on core.email_events for select using (core.is_m
 create policy outbox_member_insert on core.outbox for insert with check (tenant_id is null or core.is_member_of(tenant_id));
 
 -- notifications: a user reads/updates only their own.
-create policy notifications_self_read   on core.notifications for select using (user_id = auth.uid());
-create policy notifications_self_update on core.notifications for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy notifications_self_read   on core.notifications for select using (user_id = core.current_user_id());
+create policy notifications_self_update on core.notifications for update using (user_id = core.current_user_id()) with check (user_id = core.current_user_id());
 
 -- platform_admins: visible only to platform operators themselves (doc 04 §6) — never to tenant members.
 create policy platform_admins_read on core.platform_admins for select using (core.is_platform_admin('support'));

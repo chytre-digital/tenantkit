@@ -4,7 +4,7 @@
  * When a guardian books a makeup, the credit must MATCH the target session's course. The rules are driven by the
  * SOURCE course's `redeemMatch` (snapshotted onto the credit at issue): age band, tag overlap, same-vs-cross
  * course. The capacity/`SELECT … FOR UPDATE` half is NOT here — that is the atomic concern of the
- * `redeem_credit_into_session` SECURITY DEFINER RPC (doc 08 §6 step 3, supabase/migrations/0003_omluvenky.sql).
+ * `redeem_credit_into_session` SECURITY DEFINER RPC (doc 08 §6 step 3, db/migrations/0003_omluvenky.sql).
  * This file is the matching predicate the RPC and the portal availability grid both apply.
  */
 import type { RedeemMatch } from './issue'

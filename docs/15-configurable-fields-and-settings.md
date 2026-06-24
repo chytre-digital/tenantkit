@@ -3,7 +3,7 @@
 > The authority on the **configurable, surface‑aware field schema**: how the *"Nový účastník"* form, the public
 > QR form, and the portal are **data‑driven** from a per‑tenant set of field definitions rather than hardcoded.
 > One field set, three surfaces, one validator. The schema is canonical in
-> [`supabase/migrations/0004_fields.sql`](../supabase/migrations/0004_fields.sql) and summarized in
+> [`db/migrations/0004_fields.sql`](../db/migrations/0004_fields.sql) and summarized in
 > [03 §4a](03-data-model.md); the capability lives in the kernel `fields` module ([02 §3](02-reservation-core.md));
 > the decision is [ADR‑0011](adr/0011-configurable-field-schema.md). This unifies and **supersedes** the legacy
 > `custom_field_definitions` / `course_field_assignments` ([03 §4](03-data-model.md)). UX anchor: the [Admin]
@@ -39,7 +39,7 @@ questions only — it could relabel or remove **none** of the core fields. So:
 
 The design avoids both extremes (hardcoded columns *and* a slow EAV soup). Two tables, one rule: **a small typed
 spine stays as real columns; everything custom lands in a JSONB bag.** DDL:
-[`0004_fields.sql`](../supabase/migrations/0004_fields.sql); ERD/summary [03 §4a](03-data-model.md).
+[`0004_fields.sql`](../db/migrations/0004_fields.sql); ERD/summary [03 §4a](03-data-model.md).
 
 ### 2.1 Two tables
 
@@ -344,7 +344,7 @@ which preset to apply is an app/onboarding choice (a swim school picks `kids-cou
   surface cannot learn them.
 - **Values** live where `storage` says — the spine columns (already RLS‑guarded on `participants`/`enrollments`,
   [03 §7](03-data-model.md)) and the `custom` JSONB on the same rows; the field schema adds **no** value table,
-  so no new value‑level RLS surface. Full policies: [`0004_fields.sql`](../supabase/migrations/0004_fields.sql).
+  so no new value‑level RLS surface. Full policies: [`0004_fields.sql`](../db/migrations/0004_fields.sql).
 
 ## 10. Migration from the legacy `custom_field_definitions`
 

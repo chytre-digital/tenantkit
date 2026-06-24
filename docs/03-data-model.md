@@ -202,7 +202,7 @@ public.course_field_assignments(course_id, field_id, required boolean)
 
 > **Superseded.** `public.custom_field_definitions` / `public.course_field_assignments` (and the per‑enrollment
 > `participant_field_values`, §5) are **replaced** by the unified, surface‑aware field schema
-> `core.field_sets` + `core.field_definitions` (§4a below, [migration 0004](../supabase/migrations/0004_fields.sql),
+> `core.field_sets` + `core.field_definitions` (§4a below, [migration 0004](../db/migrations/0004_fields.sql),
 > [ADR‑0011](adr/0011-configurable-field-schema.md)). They survive only as a **migration source** ([15 §10](15-configurable-fields-and-settings.md))
 > and are dropped after cut‑over. New work targets the unified model.
 
@@ -213,7 +213,7 @@ per‑tenant, surface‑aware field schema, so a swim school collects *Jméno d�
 adult studio collects only *Jméno účastníka*. A small **typed spine** (`participants.full_name`,
 `date_of_birth`, `note`; `enrollments.payment_status`; the guardian columns) stays as real columns for indexing /
 RLS / age‑matching / dedupe; everything custom lands in the `participants.custom` / `enrollments.custom` JSONB
-bags. **Authority:** [15](15-configurable-fields-and-settings.md); **DDL:** [migration 0004](../supabase/migrations/0004_fields.sql).
+bags. **Authority:** [15](15-configurable-fields-and-settings.md); **DDL:** [migration 0004](../db/migrations/0004_fields.sql).
 
 ```sql
 -- one set per subject per tenant: 'participant' | 'guardian' | 'enrollment'
@@ -451,4 +451,4 @@ The `payments` plugin's webhooks update `core.tenants.tier` (tenant subscription
   keep aggregate attendance counts) rather than hard‑deleted where a tenant needs cohort stats — configurable.
 - **Retention**: applications rejected > N months and unredeemed expired credits are purged by a scheduled job.
 
-See the sample migration in [`supabase/migrations/`](../supabase/migrations/) for the concrete RLS recipe.
+See the sample migration in [`db/migrations/`](../db/migrations/) for the concrete RLS recipe.

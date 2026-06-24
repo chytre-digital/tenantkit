@@ -1,8 +1,8 @@
 <!-- ILLUSTRATIVE MOCKUP — realizes the migration recipe referenced by docs/03-data-model.md §7 (last line). -->
 
-# Supabase schema — Termínář 2
+# Reference schema — Postgres + RLS
 
-The concrete Postgres/Supabase schema for Termínář 2: the `core` framework schema (from `reservation-core`),
+The concrete, **vendor-neutral** Postgres schema (the reference migration): the `core` framework schema (from `reservation-core`),
 the `public` app domain (courses, sessions, the omluvenka economy), and plugin schemas (`sms`, shipped with the
 plugin package). Authoritative names come from [docs/03-data-model.md](../docs/03-data-model.md);
 the omluvenka logic from [docs/08-attendance-and-omluvenky.md](../docs/08-attendance-and-omluvenky.md); the RLS
@@ -14,10 +14,15 @@ Apply in numeric order — each depends on the previous:
 
 | # | File | Creates | Depends on |
 |---|------|---------|------------|
-| 1 | `migrations/0001_core.sql` | schema `core`; `tenants` · `profiles` · `memberships` (+ `one_owner_per_tenant`) · `guardianships` · `plugin_activations` · `plugin_settings` · `tenant_domains` · `audit_log` · `email_events` · `outbox` · `notifications` · `platform_admins`; the functions `role_rank()`, `is_member_of()` *(SECURITY DEFINER)*, `my_role()`, `guardian_can_act()` *(SECURITY DEFINER)*, `set_updated_at()`, `create_tenant_with_owner()` *(SECURITY DEFINER)*; RLS on every table. | `auth.users` (Supabase) |
+| 1 | `migrations/0001_core.sql` | schema `core`; `tenants` · `profiles` · `memberships` (+ `one_owner_per_tenant`) · `guardianships` · `plugin_activations` · `plugin_settings` · `tenant_domains` · `audit_log` · `email_events` · `outbox` · `notifications` · `platform_admins`; the functions `role_rank()`, `is_member_of()` *(SECURITY DEFINER)*, `my_role()`, `guardian_can_act()` *(SECURITY DEFINER)*, `set_updated_at()`, `create_tenant_with_owner()` *(SECURITY DEFINER)*; RLS on every table. | Postgres ≥ 14 (no vendor schema) |
 | 2 | `migrations/0002_courses.sql` | schema `public` course/enrollment domain: `participants` · `courses` · `sessions` · `course_tags` · `coach_assignments` · `validity_windows` · `custom_field_definitions` · `course_field_assignments` · `applications` · `enrollments` · `participant_field_values`; the domain enums; `set_updated_at` triggers; RLS (staff via `is_member_of`, coach **own** via `coach_assignments`, family via `guardian_can_act`, anon public catalogue). Wires the deferred `core.guardianships.participant_id` FK. | 0001 |
 | 3 | `migrations/0003_omluvenky.sql` | `attendance` · `excuses` · `credits` · `makeups` · `credit_audit`; the omluvenka enums; the ★ **`public.redeem_credit_into_session(p_credit, p_session)`** SECURITY DEFINER RPC; the `credit.issued` outbox trigger; RLS. | 0002 |
 | — | `seed.sql` | the "Plavecká škola Delfínek" demo (a `studio` tenant, an owner + a guardian + a child, 3 courses with month-based age bands + sessions, and one excused attendance that minted an active credit). | 0001–0003 |
+
+> **Identities are external.** `core` references users by bare `uuid` — no FK to any vendor `auth.users` table.
+> The caller is resolved by **`core.current_user_id()`**, the portable seam that reads `request.jwt.claims ->> 'sub'`
+> (Supabase / PostgREST) **or** an `app.user_id` GUC a direct-driver adapter sets with `SET LOCAL` (doc 14 §3.1).
+> An adapter may override the function (the Supabase adapter optionally aliases it to `auth.uid()`).
 
 The plugin's own schema is **not** here — `sms` ships with its package
 ([`plugins/sms/migrations/0001_sms.sql`](../plugins/sms/migrations/0001_sms.sql)) and is applied after these.
@@ -41,7 +46,7 @@ definitions.
 - **Family is relational.** `core.guardian_can_act(participant_id)` (also `SECURITY DEFINER`) gates a guardian's
   reads of their participant's `participants`/`enrollments`/`attendance`/`credits`/`makeups` rows (doc 04 §7).
 - **Anon catalogue.** Public reads are scoped `to anon using (show_on_public and status = 'active')` (doc 03 §7).
-- **Memberships are self-row.** `memberships_self_read` exposes only `user_id = auth.uid()`; cross-member admin
+- **Memberships are self-row.** `memberships_self_read` exposes only `user_id = core.current_user_id()`; cross-member admin
   reads go through a `SECURITY DEFINER` RPC or the service-role client. Membership writes are **rank-capped**
   (`role < my_role(tenant)` and never `owner`) so even a misused service path can't mint a rogue owner (doc 04 §5).
 - **Atomic capacity.** Booking a makeup never inserts directly — it goes through
@@ -50,20 +55,17 @@ definitions.
 
 ## Running
 
-These are illustrative SQL files; against a real Supabase project:
+Illustrative SQL — runs on any **Postgres ≥ 14** (Supabase, Neon, RDS, Fly, or a local one), no vendor CLI:
 
 ```bash
-# link once
-supabase link --project-ref <ref>
-
-# apply migrations in order (Supabase CLI runs migrations/ lexically), then seed
-supabase db push
-psql "$DATABASE_URL" -f supabase/seed.sql          # seed.sql uses \set psql vars → run with psql
-
-# or, fully local
-supabase start
-supabase db reset                                   # re-applies migrations/ + seed.sql
+# apply migrations in order, then the seed — all plain psql
+for f in migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+psql "$DATABASE_URL" -f seed.sql          # seed.sql uses \set psql vars → run with psql
 ```
+
+The RLS predicates read the caller via `core.current_user_id()` — set `request.jwt.claims` (Supabase / PostgREST
+do this from the JWT) or `SET LOCAL app.user_id = '<uuid>'` per request. On Supabase, `supabase db push` /
+`supabase db reset` also apply `migrations/`.
 
 > The `redeem_credit_into_session` RPC and all `is_member_of`/`guardian_can_act` predicates are
 > `SECURITY DEFINER` with a pinned `search_path`; review them as privileged code (doc 04 §6 — privileged paths

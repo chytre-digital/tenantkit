@@ -306,7 +306,7 @@ build is test‑first from Phase 0. Three layers, matching the architecture ([01
 | Layer | Tool | What it covers | Where it lives |
 |---|---|---|---|
 | **Unit — domain** | Vitest | Pure policy: `computeExpiry`/`isRedeemableNow`/`decideIssue`, FIFO, `effectiveCapacity`/`occupancy`, `roleAtLeast`/`can`, `generateSessions`, `resolveEmailLocale`. | `domain/**` ([08 §13](08-attendance-and-omluvenky.md)) |
-| **Integration — RLS / DB** | pgTAP + Vitest against **real Postgres** | Every table's allow/deny per role + family predicate; the SECURITY DEFINER RPCs (`provisionTenant`, approval, `redeem_credit_into_session`, `transfer_ownership`); **atomic capacity under simulated concurrency**. | `supabase/tests/**`, `reservation-testing` harness ([02 §3](02-reservation-core.md), [03 §7](03-data-model.md)) |
+| **Integration — RLS / DB** | pgTAP + Vitest against **real Postgres** | Every table's allow/deny per role + family predicate; the SECURITY DEFINER RPCs (`provisionTenant`, approval, `redeem_credit_into_session`, `transfer_ownership`); **atomic capacity under simulated concurrency**. | `db/tests/**`, `reservation-testing` harness ([02 §3](02-reservation-core.md), [03 §7](03-data-model.md)) |
 | **E2E — per surface** | Playwright | One journey per surface: admin (create course → take attendance), public (QR funnel → application), portal (magic‑link → book makeup), ops (cross‑tenant). Webhook/cron flows driven via fixtures. | `apps/terminar/e2e/**` |
 
 Plus a **fake Resend** and provider stubs ([02 §3](02-reservation-core.md)) so email/SMS/Stripe paths are tested

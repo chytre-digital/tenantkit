@@ -11,5 +11,5 @@ cp .env.example .env   # SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_
 pnpm --filter @tenantkit/example-minimal dev
 ```
 
-Apply the kernel + reference migrations from [`../../supabase/migrations`](../../supabase/migrations) first
+Apply the kernel + reference migrations from [`../../db/migrations`](../../db/migrations) first
 (they create `core.*` + the RLS predicates). That's the whole setup.

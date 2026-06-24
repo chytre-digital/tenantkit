@@ -1,6 +1,6 @@
 /**
  * Realizes ADR-0011 (docs/adr/0011-configurable-field-schema.md) and migration 0004
- * (supabase/migrations/0004_fields.sql) — the configurable, surface-aware FIELD SCHEMA types.
+ * (db/migrations/0004_fields.sql) — the configurable, surface-aware FIELD SCHEMA types.
  *
  * WHY this lives in the kernel: "každá aplikace bude mít jiné účastníky, proto je třeba aby tyto pole člověk
  * mohl nastavit v settings." Every app/tenant collects different data about its participants (a swim school

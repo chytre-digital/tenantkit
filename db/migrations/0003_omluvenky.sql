@@ -26,7 +26,7 @@ create table if not exists public.attendance (
   participant_id uuid not null references public.participants(id) on delete cascade,
   enrollment_id  uuid references public.enrollments(id),
   state          public.attendance_state not null,           -- present | excused | absent | unmarked
-  marked_by      uuid references auth.users(id),
+  marked_by      uuid,
   marked_at      timestamptz not null default now(),
   unique (session_id, participant_id)
 );
@@ -81,7 +81,7 @@ create table if not exists public.makeups (
   participant_id uuid not null references public.participants(id),
   session_id     uuid not null references public.sessions(id),  -- the makeup target
   status         public.makeup_status not null default 'booked',-- booked | cancelled | attended
-  booked_by      uuid references auth.users(id),                -- guardian or staff
+  booked_by      uuid,                -- guardian or staff
   created_at     timestamptz not null default now(),
   cancelled_at   timestamptz
 );
@@ -91,7 +91,7 @@ create index if not exists makeups_session_active on public.makeups(session_id) 
 create table if not exists public.credit_audit (
   id            uuid primary key default gen_random_uuid(),
   credit_id     uuid not null references public.credits(id) on delete cascade,
-  actor_user_id uuid references auth.users(id),
+  actor_user_id uuid,
   action        text not null,                                 -- extend | retag | cancel | grant | redeem | attendance_corrected
   field         text,
   before        jsonb,
@@ -230,7 +230,7 @@ begin
 
   -- (4) Insert the makeup (booked) and flip the credit to redeemed. One credit → one makeup.
   insert into public.makeups (tenant_id, credit_id, participant_id, session_id, status, booked_by)
-  values (v_credit.tenant_id, v_credit.id, v_credit.participant_id, p_session, 'booked', auth.uid())
+  values (v_credit.tenant_id, v_credit.id, v_credit.participant_id, p_session, 'booked', core.current_user_id())
   returning id into v_makeup;
 
   update public.credits
@@ -239,7 +239,7 @@ begin
 
   -- append-only audit (doc 08 §8) + transactional outbox event in the SAME tx (doc 09 §5: no lost/phantom events).
   insert into public.credit_audit (credit_id, actor_user_id, action, before, after)
-  values (v_credit.id, auth.uid(), 'redeem',
+  values (v_credit.id, core.current_user_id(), 'redeem',
           jsonb_build_object('status', 'active'),
           jsonb_build_object('status', 'redeemed', 'makeup_id', v_makeup));
 
@@ -291,7 +291,7 @@ create policy attendance_write_own on public.attendance for all      -- attendan
     and exists (
       select 1 from public.sessions s
       join public.coach_assignments ca on ca.course_id = s.course_id
-      where s.id = attendance.session_id and ca.user_id = auth.uid()
+      where s.id = attendance.session_id and ca.user_id = core.current_user_id()
     )
   )
   with check (
@@ -299,7 +299,7 @@ create policy attendance_write_own on public.attendance for all      -- attendan
     and exists (
       select 1 from public.sessions s
       join public.coach_assignments ca on ca.course_id = s.course_id
-      where s.id = attendance.session_id and ca.user_id = auth.uid()
+      where s.id = attendance.session_id and ca.user_id = core.current_user_id()
     )
   );
 -- family reads their participant's attendance (the portal docházka view).

@@ -63,8 +63,8 @@ create table if not exists public.courses (
   registration_mode public.reg_mode not null default 'open', -- open | staff_only
   show_on_public    boolean not null default false,          -- listed on the public catalogue?
   excuse_policy     jsonb not null default '{}',             -- { creditsEnabled, expiry:{mode,…}, selfExcuseDeadlineHours, redeemMatch, tags[] } (doc 08)
-  primary_coach_id  uuid references auth.users(id),
-  created_by        uuid references auth.users(id),
+  primary_coach_id  uuid,
+  created_by        uuid,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   deleted_at        timestamptz                              -- soft delete (history matters, doc 03 §1)
@@ -99,7 +99,7 @@ create table if not exists public.course_tags (
 -- coaches on a course (own-scope RLS reaches through this).
 create table if not exists public.coach_assignments (
   course_id  uuid not null references public.courses(id) on delete cascade,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null,
   is_primary boolean not null default false,
   primary key (course_id, user_id)
 );
@@ -146,7 +146,7 @@ create table if not exists public.applications (
   gdpr_consent_at    timestamptz not null,
   status             public.application_status not null default 'pending',
   safe_link_token    uuid not null default gen_random_uuid(),-- emailed confirm/track link
-  decided_by         uuid references auth.users(id),
+  decided_by         uuid,
   decided_at         timestamptz,
   created_at         timestamptz not null default now()
 );
@@ -219,11 +219,11 @@ create policy courses_write_any on public.courses for all
 create policy courses_write_own on public.courses for update    -- ★ a coach 'own' policy via coach_assignments
   using (
     core.is_member_of(tenant_id, 'coach')
-    and exists (select 1 from public.coach_assignments ca where ca.course_id = courses.id and ca.user_id = auth.uid())
+    and exists (select 1 from public.coach_assignments ca where ca.course_id = courses.id and ca.user_id = core.current_user_id())
   )
   with check (
     core.is_member_of(tenant_id, 'coach')
-    and exists (select 1 from public.coach_assignments ca where ca.course_id = courses.id and ca.user_id = auth.uid())
+    and exists (select 1 from public.coach_assignments ca where ca.course_id = courses.id and ca.user_id = core.current_user_id())
   );
 -- ANON public catalogue: only when show_on_public AND status='active' (doc 03 §7, doc 06 §8).
 create policy courses_public_catalogue on public.courses for select
@@ -237,11 +237,11 @@ create policy sessions_write_any on public.sessions for all
 create policy sessions_write_own on public.sessions for all     -- ★ second coach 'own' policy (through course)
   using (
     core.is_member_of(tenant_id, 'coach')
-    and exists (select 1 from public.coach_assignments ca where ca.course_id = sessions.course_id and ca.user_id = auth.uid())
+    and exists (select 1 from public.coach_assignments ca where ca.course_id = sessions.course_id and ca.user_id = core.current_user_id())
   )
   with check (
     core.is_member_of(tenant_id, 'coach')
-    and exists (select 1 from public.coach_assignments ca where ca.course_id = sessions.course_id and ca.user_id = auth.uid())
+    and exists (select 1 from public.coach_assignments ca where ca.course_id = sessions.course_id and ca.user_id = core.current_user_id())
   );
 create policy sessions_public_read on public.sessions for select
   to anon using (exists (select 1 from public.courses c where c.id = sessions.course_id and c.show_on_public and c.status = 'active'));

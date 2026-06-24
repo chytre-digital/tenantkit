@@ -81,7 +81,7 @@ How each adapter makes the identity available to RLS:
 | **pg / postgres.js / Drizzle / Kysely** | At the start of each request transaction: `SET LOCAL app.user_id = $1` with the authenticated id, then run queries; RLS reads it. |
 | **In‑memory / test** | The fake `Database` sets the actor on its `ScopedDb`; predicates are evaluated by the same logic. |
 
-One function, every Postgres. The ~40 RLS policies in `supabase/migrations/*` are unchanged — they already call
+One function, every Postgres. The ~40 RLS policies in `db/migrations/*` are unchanged — they already call
 `core.is_member_of()` / `core.guardian_can_act()`, which now call `current_user_id()`.
 
 ## 4. Ports & adapters

@@ -19,7 +19,7 @@ settings."**
 ## Decision
 
 A single **configurable, surface‑aware field schema** (`core.field_sets` + `core.field_definitions`,
-[migration 0004](../../supabase/migrations/0004_fields.sql)) that the admin/public/portal forms render from,
+[migration 0004](../../db/migrations/0004_fields.sql)) that the admin/public/portal forms render from,
 with a small **typed spine** underneath:
 
 - **System fields** map to real typed columns (`participants.full_name`, `date_of_birth`,

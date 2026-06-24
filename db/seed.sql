@@ -6,8 +6,9 @@
 --   • 2–3 courses with age bands IN MONTHS + sessions (one per course shown), incl. an omluvenka policy
 --   • one EXCUSED attendance that issued an ACTIVE credit (the signature flow, doc 08 §1)
 --
--- auth.users rows are created via the Supabase Auth admin API in a real project; here we insert directly into
--- auth.users with fixed uuids so the FKs resolve and the demo is self-contained.
+-- In a real deployment the identity provider (Supabase Auth, Auth.js, a custom IdP, …) owns user accounts; core
+-- references them by uuid with NO database FK. Here we seed core.profiles directly with fixed uuids — the demo
+-- is self-contained without any vendor auth schema.
 
 -- ── fixed ids (so re-running is predictable) ────────────────────────────────────────────────────────────────
 -- All ids are valid hex uuids (only 0-9a-f) so the demo is genuinely runnable.
@@ -25,11 +26,7 @@
 \set credit_id      '00000000-0000-0000-0000-00000000c401'
 \set window_jaro    '00000000-0000-0000-0000-00000000aa01'
 
--- ── auth users (normally created by Supabase Auth; inserted directly for a self-contained demo) ──────────────
-insert into auth.users (id, email) values
-  (:'owner_uid',    'sefka@delfinek.cz'),
-  (:'guardian_uid', 'rodic@example.com')
-on conflict (id) do nothing;
+-- (identities owner_uid / guardian_uid are created by your IdP in production; core.profiles below anchors them by uuid)
 
 -- ── tenant + owner (would normally go through core.create_tenant_with_owner; explicit here for clarity) ──────
 insert into core.tenants (id, slug, name, tier, default_locale, settings)
