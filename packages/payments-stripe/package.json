@@ -1,10 +1,20 @@
 {
   "name": "@deverjak/tenantkit-payments-stripe",
   "version": "0.1.0",
-  "description": "Stripe PaymentProvider adapter for the @tenantkit/kernel ports — subscription + course checkout, refunds, neutral webhook events.",
+  "description": "Stripe PaymentProvider adapter for the @deverjak/tenantkit-kernel ports — subscription + course checkout, refunds, neutral webhook events.",
   "license": "MIT",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json --outDir dist --declaration"
+  },
   "peerDependencies": { "@deverjak/tenantkit-kernel": "workspace:*" },
-  "dependencies": { "stripe": "^20.2.0" }
+  "dependencies": { "stripe": "^22.3.0" },
+  "devDependencies": { "typescript": "^5.9.3" }
 }

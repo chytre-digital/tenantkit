@@ -1,0 +1,6 @@
+{
+  "//": "Build config: emit JS + .d.ts to dist (the typecheck tsconfig.json sets noEmit).",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false, "rootDir": ".", "outDir": "dist", "declaration": true },
+  "include": ["index.ts", "src"]
+}

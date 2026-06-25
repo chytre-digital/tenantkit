@@ -65,7 +65,9 @@ function mapEvent(evt: Stripe.Event): PaymentEvent {
         tenantId: String(sub.metadata['tenantId'] ?? ''),
         tier: String(sub.metadata['tier'] ?? 'free'),
         status: sub.status,
-        currentPeriodEnd: sub.current_period_end * 1000,
+        // Stripe API 2025-03-31+ (SDK v18+) moved `current_period_end` off the Subscription onto each
+        // SubscriptionItem; the subscription's period end is the first item's. (Was `sub.current_period_end`.)
+        currentPeriodEnd: (sub.items.data[0]?.current_period_end ?? 0) * 1000,
       }
     }
     case 'checkout.session.completed': {

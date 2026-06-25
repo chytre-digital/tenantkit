@@ -7,4 +7,8 @@ packages:
   - 'packages/kernel'
   - 'packages/reservation-core'
   - 'packages/testing'
+  - 'packages/email-resend'
+  - 'packages/payments-stripe'
+  - 'packages/next'
+  - 'packages/i18n'
   - 'plugins/sms'
