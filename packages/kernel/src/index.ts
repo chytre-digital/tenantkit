@@ -38,6 +38,7 @@ export type {
 
 // --- http & errors ---
 export { jsonOk, jsonError } from './http/respond'
+export { errorMessageFor } from './http/error-catalog'
 export {
   HttpError,
   isHttpError,
@@ -210,6 +211,7 @@ export {
   isSupportedLocale,
   readCookie,
 } from './i18n/locale'
+export { zodErrorMap, composeErrorMap, type ZodErrorMap } from './i18n/zod-locale'
 
 // --- openapi (generate an OpenAPI 3.1 doc from route defs + their Zod schemas; doc 12 §5) ---
 export {

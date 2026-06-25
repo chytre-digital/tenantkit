@@ -49,7 +49,8 @@ import { assertPluginEnabled } from '../plugins/guard'
 import type { PluginId } from '../plugins/define-plugin'
 import { enforceRateLimit, type RateLimitSpec } from '../http/rate-limit'
 import { resolveLocale } from './resolve-locale'
-import type { Locale } from '../i18n/locale'
+import { type Locale, DEFAULT_LOCALE } from '../i18n/locale'
+import { zodErrorMap } from '../i18n/zod-locale'
 
 export type Audience = 'public' | 'staff' | 'family'
 
@@ -115,9 +116,11 @@ export function withRoute<TArgs extends unknown[]>(
   const { runtime } = opts
 
   return async (...args: TArgs): Promise<Response> => {
+    // The `Request` is the first arg Next passes; it keys both the DB handles and per-request claims memo.
+    // Resolve it + the locale BEFORE the try so the catch can localize the error (cookie/header reads never throw).
+    const req = extractRequest(args)
+    const locale = req ? resolveLocale(req) : DEFAULT_LOCALE
     try {
-      // The `Request` is the first arg Next passes; it keys both the DB handles and per-request claims memo.
-      const req = extractRequest(args)
       if (!req) {
         // Defensive: every Next route handler receives a Request. A wrapper with none is a programming error.
         throw new Error('[withRoute] no Request found in route args')
@@ -126,8 +129,7 @@ export function withRoute<TArgs extends unknown[]>(
       // 1. RLS-scoped handles (user/anon/service), identity derived from the request's session cookie.
       const db = runtime.db.forRequest(req)
 
-      // 2. Locale (cookie/header). No URL segment here — that's the page layer's concern.
-      const locale = resolveLocale(req)
+      // 2. Locale (cookie/header) resolved above. No URL segment here — that's the page layer's concern.
 
       const ctx: RouteCtx = {
         runtime,
@@ -179,14 +181,15 @@ export function withRoute<TArgs extends unknown[]>(
         await enforceRateLimit(runtime, opts.rateLimit, rateLimitIdentity(ctx, args)) // throws 429 RATE_LIMITED
       }
 
-      // 9. Body / query validation → ctx.input.
+      // 9. Body / query validation → ctx.input. Localize Zod's built-in messages via the request locale.
+      const errorMap = zodErrorMap(locale)
       if (opts.body) {
-        const r = await parseJson(req, opts.body)
+        const r = await parseJson(req, opts.body, errorMap)
         if (isParseError(r)) return r.response // 400 VALIDATION_ERROR
         ctx.input.body = r.data
       }
       if (opts.query) {
-        const r = parseQuery(req, opts.query)
+        const r = parseQuery(req, opts.query, errorMap)
         if (isParseError(r)) return r.response
         ctx.input.query = r.data
       }
@@ -194,8 +197,9 @@ export function withRoute<TArgs extends unknown[]>(
       // 10. Run.
       return await handler(ctx, ...args)
     } catch (e) {
-      // Any throw — HttpError / DomainError / PostgrestError / ZodError / unknown — becomes a uniform response.
-      return jsonError(e)
+      // Any throw — HttpError / DomainError / PostgrestError / ZodError / unknown — becomes a uniform response,
+      // localized to the request locale resolved above.
+      return jsonError(e, locale)
     }
   }
 }

@@ -52,7 +52,14 @@ export function createI18n<const L extends readonly Locale[]>(opts: CreateI18nOp
 /** The `{ routing, request, navigation }` bundle returned by `createI18n`. */
 export type I18n = ReturnType<typeof createI18n>
 
-function defaultLoader(locale: Locale): Promise<Record<string, unknown>> {
-  // Apps keep catalogues at `messages/‹locale›.json` (doc 02 §13). The `@/` alias resolves into the app.
-  return import(`@/messages/${locale}.json`).then((m) => m.default as Record<string, unknown>)
+// Cookie-based (routing-free) variant — locale from a `NEXT_LOCALE` cookie, not a `[locale]` URL segment.
+export { createI18nCookie, type I18nCookie, type CreateI18nCookieOptions } from './cookie'
+
+// No `@/messages` default: an alias-based dynamic import inside this PACKAGE can't be resolved by the app's
+// bundler (the alias is app-scoped, this file lives in node_modules). Apps MUST pass `loadMessages` with a path
+// the bundler can see, e.g. `(l) => import(`./messages/${l}.json`).then((m) => m.default)`.
+function defaultLoader(_locale: Locale): Promise<Record<string, unknown>> {
+  throw new Error(
+    '[tenantkit-i18n] createI18n: pass `loadMessages` — e.g. (l) => import(`./messages/${l}.json`).then((m) => m.default)',
+  )
 }

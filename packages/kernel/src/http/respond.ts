@@ -9,6 +9,8 @@
 import { ZodError } from 'zod'
 import { HttpError, isHttpError } from './errors'
 import { DomainError, isDomainError, mapDomainError } from '../domain/errors'
+import { type Locale, DEFAULT_LOCALE } from '../i18n/locale'
+import { errorMessageFor } from './error-catalog'
 
 /** 200 with the data spread at the top level: `jsonOk({ session })` → `{ session: … }`. */
 export function jsonOk<T>(data: T, init?: ResponseInit): Response {
@@ -66,41 +68,53 @@ function mapPgError(e: PostgrestErrorLike): { status: number; code: string } {
   }
 }
 
-/** Universal catch — turn ANY thrown value into the uniform error response. */
-export function jsonError(err: unknown): Response {
-  // 1) HttpError — already carries status + code.
+/**
+ * Universal catch — turn ANY thrown value into the uniform error response, localized to `locale`.
+ *
+ * The human-readable `error` is taken from the per-locale catalogue (error-catalog.ts) keyed by the stable
+ * `code`; when a code isn't catalogued it falls back to the thrown message. `code` + `details` are NEVER
+ * localized — they're the machine contract the client maps against. ZodError field messages are localized
+ * upstream at parse time (zod-locale.ts); this only formats them.
+ */
+export function jsonError(err: unknown, locale: Locale = DEFAULT_LOCALE): Response {
+  const localized = (code: string, fallback: string): string => errorMessageFor(code, locale) ?? fallback
+
+  // 1) HttpError — already carries status + code. (Default messages double as the code, so the catalogue wins.)
   if (isHttpError(err)) {
-    return body(err.status, { error: err.message, code: err.code, details: err.details })
+    return body(err.status, { error: localized(err.code, err.message), code: err.code, details: err.details })
   }
 
   // 2) DomainError — bridge to HTTP via the single mapper.
   if (isDomainError(err)) {
     const http = mapDomainError(err)
-    return body(http.status, { error: http.message, code: http.code, details: http.details })
+    return body(http.status, { error: localized(http.code, http.message), code: http.code, details: http.details })
   }
 
-  // 3) Raw PostgrestError — map by PG code (belt-and-suspenders for RLS denials, conflicts, …).
+  // 3) Raw PostgrestError — map by PG code (belt-and-suspenders for RLS denials, conflicts, …). The catalogue
+  //    localizes the mapped code AND keeps the raw SQL message from leaking to the client.
   if (isPostgrestError(err)) {
     const { status, code } = mapPgError(err)
-    return body(status, { error: err.message, code, details: err.details ?? undefined })
+    return body(status, { error: localized(code, err.message), code, details: err.details ?? undefined })
   }
 
   // 4) ZodError — a validation failure. Surface WHICH field(s) failed (e.g. "title: Required;
   //    sessions.0.startsAt: Invalid datetime") instead of a generic message, so every form in every app can
   //    tell the user what's wrong with no per-form work; `details` is the structured form for field-level UIs.
+  //    The per-field `message` is already in `locale` (localized by the parse-time error map).
   if (err instanceof ZodError) {
     const details = err.issues.map((i) => ({
       path: i.path.map(String).join('.') || '(body)',
       message: i.message,
       code: i.code,
     }))
-    const error = details.map((d) => `${d.path}: ${d.message}`).join('; ') || 'Validation failed'
+    const error =
+      details.map((d) => `${d.path}: ${d.message}`).join('; ') || localized('VALIDATION_ERROR', 'Validation failed')
     return body(400, { error, code: 'VALIDATION_ERROR', details, issues: err.issues })
   }
 
   // 5) Fallback — unknown throw. Log server-side; never leak internals to the client.
   // logger.error('Unhandled route error', { err }) — wired in the app (doc 01 §9)
-  return body(500, { error: 'Internal server error', code: 'INTERNAL' })
+  return body(500, { error: localized('INTERNAL', 'Internal server error'), code: 'INTERNAL' })
 }
 
 export { HttpError, DomainError }
