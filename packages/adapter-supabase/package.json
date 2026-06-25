@@ -1,0 +1,43 @@
+{
+  "name": "@deverjak/tenantkit-adapter-supabase",
+  "version": "0.1.0",
+  "description": "Supabase reference adapter for @deverjak/tenantkit-kernel — Database, Identity, Session, Authz, Storage. Drop-in: createSupabaseRuntime() -> CoreRuntime.",
+  "license": "MIT",
+  "type": "module",
+  "repository": "github:chytre-digital/tenantkit",
+  "homepage": "https://github.com/chytre-digital/tenantkit#readme",
+  "keywords": ["tenantkit", "supabase", "multi-tenant", "rls", "adapter", "next"],
+  "exports": {
+    ".": "./src/index.ts",
+    "./sql": "./supabase/0000_current_user_id_supabase.sql"
+  },
+  "files": ["dist", "supabase"],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+      "./sql": "./supabase/0000_current_user_id_supabase.sql"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deverjak/tenantkit-kernel": "workspace:*",
+    "next": ">=15"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.90.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@deverjak/tenantkit-kernel": "workspace:*",
+    "@deverjak/tenantkit-testing": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

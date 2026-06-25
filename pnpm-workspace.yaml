@@ -11,4 +11,5 @@ packages:
   - 'packages/payments-stripe'
   - 'packages/next'
   - 'packages/i18n'
+  - 'packages/adapter-supabase'
   - 'plugins/sms'
