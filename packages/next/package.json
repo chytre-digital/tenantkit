@@ -1,5 +1,5 @@
 {
-  "name": "@tenantkit/next",
+  "name": "@deverjak/tenantkit-next",
   "version": "0.1.0",
   "description": "Next.js binding for the @tenantkit/kernel: the cookie adapter, the session-refresh middleware glue, and route helpers. The framework-specific seam (docs/14 §5).",
   "license": "MIT",

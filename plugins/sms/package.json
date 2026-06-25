@@ -1,6 +1,6 @@
 {
   "//": "ILLUSTRATIVE MOCKUP — the SMS plugin (docs 09 §6, 02 §12). Owns the `sms.*` Postgres schema; subscribes to `session.reminder_due` and `credit.issued`; gated at `pro` tier. Touches the system only through the five plugin seams.",
-  "name": "@terminar/plugin-sms",
+  "name": "@deverjak/tenantkit-plugin-sms",
   "version": "0.1.0-mockup",
   "description": "Transactional SMS for Termínář, behind a swappable SmsProvider port (Twilio / SMSbrana). requiresTier: 'pro'.",
   "type": "module",

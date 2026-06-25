@@ -1,0 +1,6 @@
+{
+  "//": "Build-only config: excludes tests so the published dist ships no *.test.* files. Typecheck (tsconfig.json) still covers tests.",
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"]
+}

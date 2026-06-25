@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-kernel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Headless, vendor-free multi-tenant / multi-modal / role-based foundation: ports, withRoute, tenancy, RBAC, entitlements, plugin SDK, http, validation, fields, the RLS SQL. Bring your own auth/email/payments via adapters.",
   "license": "MIT",
   "type": "module",
@@ -15,7 +15,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.json --outDir dist --declaration"
+    "build": "tsc -p tsconfig.build.json --outDir dist --declaration"
   },
   "dependencies": {
     "zod": "^4.0.0"

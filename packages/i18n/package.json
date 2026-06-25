@@ -1,5 +1,5 @@
 {
-  "name": "@tenantkit/i18n",
+  "name": "@deverjak/tenantkit-i18n",
   "version": "0.1.0",
   "description": "next-intl wiring for tenantkit: createI18n() → routing/request/navigation. The framework-bound i18n seam (kept out of the vendor-free kernel).",
   "license": "MIT",

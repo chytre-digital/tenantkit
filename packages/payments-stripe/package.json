@@ -1,5 +1,5 @@
 {
-  "name": "@tenantkit/payments-stripe",
+  "name": "@deverjak/tenantkit-payments-stripe",
   "version": "0.1.0",
   "description": "Stripe PaymentProvider adapter for the @tenantkit/kernel ports — subscription + course checkout, refunds, neutral webhook events.",
   "license": "MIT",
