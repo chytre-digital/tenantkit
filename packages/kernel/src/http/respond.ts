@@ -85,9 +85,17 @@ export function jsonError(err: unknown): Response {
     return body(status, { error: err.message, code, details: err.details ?? undefined })
   }
 
-  // 4) ZodError — a validation failure that escaped `parseJson` (e.g. validated mid-handler).
+  // 4) ZodError — a validation failure. Surface WHICH field(s) failed (e.g. "title: Required;
+  //    sessions.0.startsAt: Invalid datetime") instead of a generic message, so every form in every app can
+  //    tell the user what's wrong with no per-form work; `details` is the structured form for field-level UIs.
   if (err instanceof ZodError) {
-    return body(400, { error: 'Validation failed', code: 'VALIDATION_ERROR', issues: err.issues })
+    const details = err.issues.map((i) => ({
+      path: i.path.map(String).join('.') || '(body)',
+      message: i.message,
+      code: i.code,
+    }))
+    const error = details.map((d) => `${d.path}: ${d.message}`).join('; ') || 'Validation failed'
+    return body(400, { error, code: 'VALIDATION_ERROR', details, issues: err.issues })
   }
 
   // 5) Fallback — unknown throw. Log server-side; never leak internals to the client.
