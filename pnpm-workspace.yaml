@@ -1,7 +1,10 @@
-# Phase 0 (roadmap §2): the vendor-free CORE is hardened first, bottom-up. The vendor adapters
+# Phase 0 (roadmap §2): the vendor-free CORE is hardened first, bottom-up. The VENDOR adapters
 # (adapter-supabase, email-resend, payments-stripe, next, i18n) and the app join the workspace as
 # each is productionized in later increments — keeps the foundation install lean and provably green.
+# `plugins/sms` is wired here because it is ALSO vendor-free (kernel + zod only; its SMS gateway is a
+# port with a stub default), so it joins the lean, provably-green set without pulling a vendor SDK.
 packages:
   - 'packages/kernel'
   - 'packages/reservation-core'
   - 'packages/testing'
+  - 'plugins/sms'

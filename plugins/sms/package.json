@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tenantkit/kernel": "workspace:*",
+    "@deverjak/tenantkit-kernel": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

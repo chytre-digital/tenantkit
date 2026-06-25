@@ -5,7 +5,7 @@
  * so the plugin never sees a Stripe type. Swap this package for `@tenantkit/payments-gopay` and nothing else changes.
  */
 import Stripe from 'stripe'
-import type { PaymentEvent, PaymentProvider } from '@tenantkit/kernel'
+import type { PaymentEvent, PaymentProvider } from '@deverjak/tenantkit-kernel'
 
 export interface StripePaymentsOptions {
   secretKey: string

@@ -59,6 +59,19 @@ importers:
         specifier: ^4.0.0
         version: 4.1.9(@types/node@22.20.0)(vite@8.1.0(@types/node@22.20.0))
 
+  plugins/sms:
+    dependencies:
+      '@deverjak/tenantkit-kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
 packages:
 
   '@babel/runtime@7.29.7':

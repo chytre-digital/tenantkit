@@ -5,7 +5,7 @@
  */
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { CookieAdapter, CoreRuntime } from '@tenantkit/kernel'
+import type { CookieAdapter, CoreRuntime } from '@deverjak/tenantkit-kernel'
 
 /** A writable `CookieAdapter` over `next/headers` — pass as `createSupabaseRuntime({ cookies: nextCookies })`. */
 export async function nextCookies(): Promise<CookieAdapter> {

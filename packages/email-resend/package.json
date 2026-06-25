@@ -5,6 +5,6 @@
   "license": "MIT",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "peerDependencies": { "@tenantkit/kernel": "workspace:*" },
+  "peerDependencies": { "@deverjak/tenantkit-kernel": "workspace:*" },
   "dependencies": { "resend": "^6.12.4" }
 }

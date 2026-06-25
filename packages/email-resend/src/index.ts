@@ -7,7 +7,7 @@
  *   • GRACEFUL  — no API key → `skipped`; a provider error → `error` RETURNED, never thrown (must not break enrollment).
  */
 import { Resend } from 'resend'
-import type { EmailMessage, EmailProvider, EmailSendResult } from '@tenantkit/kernel'
+import type { EmailMessage, EmailProvider, EmailSendResult } from '@deverjak/tenantkit-kernel'
 
 export interface ResendEmailOptions {
   /** Default From, e.g. "Termínář <no-reply@terminar.cz>". A message's own `from` overrides it. */

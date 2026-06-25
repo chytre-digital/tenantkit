@@ -8,7 +8,7 @@
  *
  * Build order: ships AFTER `payments` (doc 09 §9) since it depends on the scheduler + `notification_preferences`.
  */
-import { definePlugin, type PluginLifecycleCtx } from '@tenantkit/kernel'
+import { definePlugin, type PluginLifecycleCtx } from '@deverjak/tenantkit-kernel'
 import { z } from 'zod'
 import { type SmsProvider, StubSmsProvider } from './src/port'
 
@@ -55,14 +55,12 @@ export default definePlugin({
 
   /**
    * Idempotent provisioning (doc 09 §2.3): seed default `sms.templates` so a freshly enabled tenant already has
-   * Czech + English reminder copy. `ctx.admin` is SCHEMA-SCOPED to `sms.*` (doc 09 §7) — it can write nothing
-   * else. Enabling twice is a no-op via the on-conflict upsert.
+   * Czech + English reminder copy. PORTS REFACTOR (docs/14): the lifecycle ctx is vendor-neutral — `ctx.db` is a
+   * `ScopedDb` fenced to the plugin's OWN `sms.*` schema (doc 09 §7), not a Supabase client. Portable code calls
+   * a SECURITY DEFINER RPC; the on-conflict upsert lives inside `sms.seed_templates`, so enabling twice is a no-op.
    */
   async onEnable(ctx: PluginLifecycleCtx) {
-    await ctx.admin.from('templates').upsert(
-      TEMPLATE_PACK.map((t) => ({ tenant_id: ctx.tenantId, ...t })),
-      { onConflict: 'tenant_id,key,locale', ignoreDuplicates: true },
-    )
+    await ctx.db.rpc('seed_templates', { tenant_id: ctx.tenantId, templates: TEMPLATE_PACK })
   },
 
   /**
