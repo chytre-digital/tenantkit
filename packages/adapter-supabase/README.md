@@ -17,12 +17,35 @@ pnpm add @deverjak/tenantkit-kernel @deverjak/tenantkit-adapter-supabase @deverj
 ```
 
 ```bash
-# .env
-SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-SUPABASE_ANON_KEY=eyJ...                 # publishable / anon key
-SUPABASE_SERVICE_ROLE_KEY=eyJ...         # server-only — bypasses RLS, never shipped to the browser
-RESEND_API_KEY=re_...
+# .env — modern Supabase key names (legacy SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY are also accepted)
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...   # browser-safe; RLS-enforced
+SUPABASE_SECRET_KEY=sb_secret_...                         # server-only — bypasses RLS, never ship to the browser
+RESEND_API_KEY=re_...                                     # only if you use @deverjak/tenantkit-email-resend
 ```
+
+## Which keys do you need?
+
+The adapter uses **two** Supabase API keys and `SUPABASE_URL`. It accepts both the **new** key names
+(`*_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY`) and the **legacy** ones (`SUPABASE_ANON_KEY` /
+`SUPABASE_SERVICE_ROLE_KEY`); the `NEXT_PUBLIC_*` variants are read too (required by the Edge proxy/middleware).
+
+| You want to… | Key needed | Env var |
+|---|---|---|
+| **Auth** — sign in / sign up / magic link / OAuth / session refresh | **publishable** (anon) | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
+| **Tables as the signed-in user** — RLS-scoped reads/writes (`ctx.db.user()`) | **publishable** (anon) | *(same — the user's JWT rides the cookie)* |
+| **Public / anon table reads** (`ctx.db.anon()`) | **publishable** (anon) | *(same)* |
+| **The tenant layer** — `resolveClaims` (memberships, profiles), `provisionTenant`, plugin activation, tenant tier | **secret** (service-role) | `SUPABASE_SECRET_KEY` |
+| **Storage** — logos / exports (`StorageProvider`) | **secret** (service-role) | `SUPABASE_SECRET_KEY` |
+| **Admin** — invite staff (`createUser`), mint magic links (`createMagicLink`) | **secret** (service-role) | `SUPABASE_SECRET_KEY` |
+| **Rate limits / webhooks / cron** (`Database.service()`) | **secret** (service-role) | `SUPABASE_SECRET_KEY` |
+
+**Rule of thumb:** the **publishable key alone** runs all user-facing **auth + RLS-scoped data**. Add the
+**secret key** the moment you touch the **tenant/authz layer, storage, admin user creation, or any service-role
+work** — it bypasses RLS, so keep it **server-only** (never in a `NEXT_PUBLIC_*` var or the browser bundle).
+
+> The project's **JWT secret** is *not* used by this adapter — it authenticates with the API keys above, it does
+> not verify JWTs itself. You only need the JWT secret if you verify Supabase tokens manually elsewhere.
 
 ## Wire it (≈12 lines)
 

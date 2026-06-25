@@ -1,6 +1,7 @@
 /**
- * Supabase adapter env — validated once, fail-fast. The publishable key is named per the conventional
- * `SUPABASE_ANON_KEY` (the reference apps used a non-standard name; we normalize it here).
+ * Supabase adapter env — validated once, fail-fast. Accepts BOTH key namings: the new Supabase keys
+ * (`SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY`, incl. their `NEXT_PUBLIC_*` variants) and the legacy
+ * `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`. Internally both collapse to the same two fields.
  */
 import { z } from 'zod'
 
@@ -18,8 +19,14 @@ export function supabaseEnv(): SupabaseEnv {
   if (cached) return cached
   const parsed = Schema.safeParse({
     SUPABASE_URL: process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL,
-    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    // New Supabase key naming (publishable / secret) first, then the legacy anon / service_role names.
+    // NEXT_PUBLIC_* variants cover the Edge runtime (proxy), where only public vars are inlined.
+    SUPABASE_ANON_KEY:
+      process.env.SUPABASE_PUBLISHABLE_KEY ??
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+      process.env.SUPABASE_ANON_KEY ??
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY,
   })
   if (!parsed.success) {
     throw new Error(`[adapter-supabase] invalid env:\n${parsed.error.issues.map((i) => ` - ${i.path}: ${i.message}`).join('\n')}`)
