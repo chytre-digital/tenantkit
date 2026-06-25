@@ -12,7 +12,11 @@ import type { AuthzStore, ProfileRow } from '@deverjak/tenantkit-kernel'
 import { adminClient } from './clients'
 
 export class SupabaseAuthzStore implements AuthzStore {
-  private db = adminClient()
+  // Lazy: the service-role client (and its SUPABASE_SERVICE_ROLE_KEY requirement) resolves on FIRST USE, not at
+  // construction — so an anon-only app (public catalogue, family sign-in) can build a runtime without the key.
+  private get db() {
+    return adminClient()
+  }
 
   async ensureProfile(userId: string, email: string | null): Promise<ProfileRow> {
     const { data } = await this.db.schema('core').from('profiles')

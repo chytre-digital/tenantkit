@@ -3,7 +3,10 @@ import type { StorageProvider } from '@deverjak/tenantkit-kernel'
 import { adminClient } from './clients'
 
 export class SupabaseStorage implements StorageProvider {
-  private db = adminClient()
+  // Lazy (see authz.ts): resolve the service-role client on first use, not at construction.
+  private get db() {
+    return adminClient()
+  }
 
   async put(input: { bucket: string; key: string; body: ArrayBuffer | Uint8Array; contentType: string }): Promise<{ key: string }> {
     const { error } = await this.db.storage.from(input.bucket).upload(input.key, input.body, {
