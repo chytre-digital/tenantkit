@@ -50,7 +50,17 @@ export {
   tooManyRequests,
   internal,
 } from './http/errors'
-export { enforceRateLimit, type RateLimitSpec } from './http/rate-limit'
+export {
+  enforceRateLimit,
+  evaluateLimit,
+  windowStartFor,
+  rateLimitWindowMs,
+  RATE_LIMIT_PRESETS,
+  type RateLimitSpec,
+  type RateLimitWindow,
+  type RateLimitLockout,
+  type LimitDecision,
+} from './http/rate-limit'
 export { type CookieAdapter, readOnlyCookies } from './http/cookies'
 
 // --- domain errors ---
@@ -148,6 +158,39 @@ export {
 } from './plugins/registry'
 export { assertPluginEnabled, type PluginGateReason } from './plugins/guard'
 
+// --- events (the core.outbox dispatcher: fan a CoreEvent to plugin handlers + core subscribers) ---
+export {
+  createEventBus,
+  dispatchEvent,
+  type EventBus,
+  type EventBusOptions,
+  type PublishInput,
+  type DispatchTarget,
+  type OutboxEvent,
+  type EventSubscriber,
+  type SubscriberFailure,
+  type DispatchResult,
+} from './events'
+
+// --- security (safe-link tokens; PII redaction) ---
+export {
+  createSafeLinks,
+  DEFAULT_TTL_SECONDS,
+  type SafeLinks,
+  type SafeLinkConfig,
+  type SafeLinkClaims,
+  type MintInput,
+  type VerifyResult,
+  type SafeLinkFailure,
+  redact,
+  redactSecrets,
+  redactPii,
+  piiKeysOf,
+  REDACTED,
+  DEFAULT_SECRET_KEYS,
+  type RedactOptions,
+} from './security'
+
 // --- email ---
 export { sendEmail, type SendEmailInput, type EmailResult } from './email/send'
 export {
@@ -167,6 +210,19 @@ export {
   isSupportedLocale,
   readCookie,
 } from './i18n/locale'
+
+// --- openapi (generate an OpenAPI 3.1 doc from route defs + their Zod schemas; doc 12 §5) ---
+export {
+  buildOpenApi,
+  type RouteDef,
+  type RouteAudience,
+  type HttpMethod,
+  type OpenApiInfo,
+  type OpenApiServer,
+  type BuildOpenApiInput,
+  type OpenApiDocument,
+  type JsonSchema,
+} from './openapi'
 
 // --- db (SQL building blocks) ---
 export {
