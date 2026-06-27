@@ -133,13 +133,13 @@ insert into public.sessions (id, tenant_id, course_id, starts_at, duration_min, 
   (:'sess_baby_next', :'tenant_id', :'course_baby', timestamptz '2026-06-17 09:00:00+02', 30, 'Bazén A', 2, 'scheduled')
 on conflict (id) do nothing;
 
--- ── the child participant + the guardian link + an active enrollment ─────────────────────────────────────────
+-- ── the child participant + the participant-account link + an active enrollment ─────────────────────────────────────────
 -- born 2025-09-01 → ~9 months at the 2026-06 sessions: inside the Kojenci 3–12 m band.
 insert into public.participants (id, tenant_id, full_name, date_of_birth, note)
 values (:'child_id', :'tenant_id', 'Eliška Rodičová', date '2025-09-01', 'Bojí se vody na obličeji.')
 on conflict (id) do nothing;
 
-insert into core.guardianships (user_id, participant_id, tenant_id, relation, is_primary)
+insert into core.participant_accounts (user_id, participant_id, tenant_id, relation, is_primary)
 values (:'guardian_uid', :'child_id', :'tenant_id', 'parent', true)
 on conflict (user_id, participant_id) do nothing;
 

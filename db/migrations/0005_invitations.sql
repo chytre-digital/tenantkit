@@ -1,50 +1,26 @@
 -- ILLUSTRATIVE MOCKUP — the generic "invite a user by email" capability (docs/05-auth.md §2b staff invite,
--- §3 participant linking). Migration 0005: core invitations + the participant-account link they create.
+-- §3 participant linking). Migration 0005: core.invitations + the accept RPC that turns an invite into a
+-- participant-account link (or a staff membership).
 --
 -- DELIBERATELY participant-generic — there is NO "guardian" in core. The two things you can invite by email are:
 --   • a PARTICIPANT ACCOUNT — a user linked to a participant; base relation 'self' (an adult / own-type
 --     participant managing their own enrollment). An app MAY use other relation VALUES (e.g. a kid's account is
 --     relation 'guardian') — but that is app vocabulary, not a core concept.
 --   • a STAFF membership — a rank-capped core.memberships row.
--- core.participant_accounts + core.can_act_for_participant() SUPERSEDE the legacy guardian-named
--- core.guardianships + core.guardian_can_act() from 0001_core.sql. (Termínář, an early adopter, still ships the
--- guardian names: its core.guardianships ≙ this core.participant_accounts, core.guardian_can_act ≙
--- core.can_act_for_participant, with relation 'guardian' for kids and 'self' for adults. New apps use these.)
+-- The link table core.participant_accounts and its RLS predicate core.can_act_for_participant() are defined in
+-- 0001_core.sql; this migration only adds the invitations that CREATE participant_account / membership rows.
 --
 -- The invitation token is the app-side claim; the identity-provider account + sign-in are the adapter's. So
 -- core.accept_invitation takes the actor id AND the actor's VERIFIED email EXPLICITLY (a service-role connection
 -- has no JWT to read them from) — vendor-neutral, no auth.users read in core. The adapter resolves "does an
 -- account exist for this email?" and the verified email its own way (the Supabase adapter reads auth.users).
 --
--- Mirrors the kernel SQL building blocks @deverjak/tenantkit-kernel src/db (PARTICIPANT_ACCOUNTS_SQL,
--- CAN_ACT_FOR_PARTICIPANT_SQL, INVITATIONS_SQL, ACCEPT_INVITATION_SQL, INVITATIONS_ALL_SQL).
-
--- ── core.participant_accounts — the generic user ↔ participant link (supersedes core.guardianships). ──
-create table if not exists core.participant_accounts (
-  id             uuid primary key default gen_random_uuid(),
-  user_id        uuid not null,
-  participant_id uuid not null,                                  -- → the app's participants table (FK added by the app)
-  tenant_id      uuid not null references core.tenants(id) on delete cascade,
-  relation       text not null default 'self',                  -- 'self' (adult/own) | app values e.g. 'guardian','parent'
-  is_primary     boolean not null default true,
-  created_by     uuid,
-  created_at     timestamptz not null default now(),
-  unique (user_id, participant_id)
-);
-create index if not exists participant_accounts_user_idx        on core.participant_accounts(user_id);
-create index if not exists participant_accounts_participant_idx on core.participant_accounts(participant_id);
-
--- May the caller act for this participant? SECURITY DEFINER (supersedes core.guardian_can_act).
-create or replace function core.can_act_for_participant(p_participant uuid)
-  returns boolean language sql security definer stable as $$
-  select exists (
-    select 1 from core.participant_accounts pa
-    where pa.participant_id = p_participant and pa.user_id = core.current_user_id()
-  )
-$$;
+-- Mirrors the kernel SQL building blocks @deverjak/tenantkit-kernel src/db (INVITATIONS_SQL, ACCEPT_INVITATION_SQL;
+-- the link table + predicate are PARTICIPANT_ACCOUNTS_SQL / CAN_ACT_FOR_PARTICIPANT_SQL, applied via 0001).
 
 -- ── core.invitations — kind 'participant' (→ participant_account) | 'staff' (→ rank-capped membership). The
---    PENDING state lives here so participant_accounts / memberships only ever get a row with a real user_id. ──
+--    PENDING state lives here so core.participant_accounts / core.memberships only ever get a row with a real
+--    user_id (at accept time). ──
 create table if not exists core.invitations (
   id               uuid primary key default gen_random_uuid(),
   tenant_id        uuid not null references core.tenants(id) on delete cascade,
@@ -68,8 +44,10 @@ create unique index if not exists invitations_pending_participant_uniq
 create unique index if not exists invitations_pending_staff_uniq
   on core.invitations (tenant_id, lower(email)) where status = 'pending' and kind = 'staff';
 
--- ── core.accept_invitation — bind to a VERIFIED user → participant_account or membership. SECURITY DEFINER to
---    break the RLS chicken-and-egg, like core.create_tenant_with_owner. Verified email passed explicitly. ──
+-- ── core.accept_invitation — bind an invite to a VERIFIED user → participant_account or rank-capped membership.
+--    SECURITY DEFINER to break the RLS chicken-and-egg (insert into a tenant the user isn't in yet), like
+--    create_tenant_with_owner. Vendor-neutral: the adapter passes the user's id AND verified email (no auth.users
+--    read in core). ──
 create or replace function core.accept_invitation(p_token uuid, p_user uuid, p_user_email text)
   returns table (tenant_id uuid, kind text)
   language plpgsql security definer as $$
@@ -104,11 +82,8 @@ begin
   return query select v_inv.tenant_id, v_inv.kind;
 end $$;
 
--- ── RLS (default deny; mirrors the rest of core). Admin+ manage invites + read the links; a user reads their own.
-alter table core.participant_accounts enable row level security;
-alter table core.invitations          enable row level security;
-
-create policy participant_accounts_self_read  on core.participant_accounts for select using (user_id = core.current_user_id());
-create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
+-- ── RLS (default deny; mirrors the rest of core). Admin+ manage their tenant's invites. The link table's own RLS
+--    (participant_accounts_self_read / _admin_read) is set in 0001_core.sql. ──
+alter table core.invitations enable row level security;
 create policy invitations_admin_rw on core.invitations for all
   using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));

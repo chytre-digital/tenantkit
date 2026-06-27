@@ -16,7 +16,7 @@ create schema if not exists core;
 -- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 do $$ begin create type core.app_role          as enum ('staff', 'coach', 'admin', 'owner');        exception when duplicate_object then null; end $$;
 do $$ begin create type core.tenant_status      as enum ('active', 'suspended');                     exception when duplicate_object then null; end $$;
-do $$ begin create type core.guardian_relation  as enum ('parent', 'guardian', 'self');              exception when duplicate_object then null; end $$;
+do $$ begin create type core.participant_relation as enum ('parent', 'guardian', 'self');              exception when duplicate_object then null; end $$;
 do $$ begin create type core.platform_role      as enum ('support', 'superadmin');                   exception when duplicate_object then null; end $$;
 
 -- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -62,13 +62,13 @@ create or replace function core.my_role(p_tenant uuid)
   where m.tenant_id = p_tenant and m.user_id = core.current_user_id()
 $$;
 
--- Family predicate: may this guardian act for the participant? SECURITY DEFINER (doc 04 §7).
-create or replace function core.guardian_can_act(p_participant uuid)
+-- Participant-account predicate: may this account act for the participant? SECURITY DEFINER (doc 04 §7).
+create or replace function core.can_act_for_participant(p_participant uuid)
   returns boolean language sql security definer stable
   set search_path = core, public as $$
   select exists (
-    select 1 from core.guardianships g
-    where g.participant_id = p_participant and g.user_id = core.current_user_id()
+    select 1 from core.participant_accounts pa
+    where pa.participant_id = p_participant and pa.user_id = core.current_user_id()
   )
 $$;
 
@@ -137,20 +137,21 @@ create unique index if not exists one_owner_per_tenant on core.memberships(tenan
 create index if not exists memberships_user_idx   on core.memberships(user_id);
 create index if not exists memberships_tenant_idx on core.memberships(tenant_id);
 
--- core.guardianships — family account ↔ participant (doc 03 §3). participant_id FK added in 0002 after the table
--- exists; declared here without the cross-schema FK to keep migration order clean.
-create table if not exists core.guardianships (
+-- core.participant_accounts — a user account ↔ the participant it may act for (doc 03 §3). participant_id FK added
+-- in 0002 after the table exists; declared here without the cross-schema FK to keep migration order clean.
+create table if not exists core.participant_accounts (
   id             uuid primary key default gen_random_uuid(),
-  user_id        uuid not null,  -- the guardian account
+  user_id        uuid not null,                                              -- the linked user account
   participant_id uuid not null,                                              -- → public.participants(id) (0002)
   tenant_id      uuid not null references core.tenants(id),                  -- denormalized for RLS speed
-  relation       core.guardian_relation not null default 'parent',          -- parent | guardian | self
+  relation       core.participant_relation not null default 'self',         -- 'self' (adult/own) | app value e.g. 'guardian','parent'
   is_primary     boolean not null default true,
+  created_by     uuid,                                                       -- who created the link (e.g. the invite's inviter)
   created_at     timestamptz not null default now(),
   unique (user_id, participant_id)
 );
-create index if not exists guardianships_user_idx        on core.guardianships(user_id);
-create index if not exists guardianships_participant_idx on core.guardianships(participant_id);
+create index if not exists participant_accounts_user_idx        on core.participant_accounts(user_id);
+create index if not exists participant_accounts_participant_idx on core.participant_accounts(participant_id);
 
 -- Plugin tables (doc 03 §3).
 create table if not exists core.plugin_activations (
@@ -250,7 +251,7 @@ create trigger set_updated_at before update on core.profiles for each row execut
 alter table core.tenants            enable row level security;
 alter table core.profiles           enable row level security;
 alter table core.memberships        enable row level security;
-alter table core.guardianships      enable row level security;
+alter table core.participant_accounts enable row level security;
 alter table core.plugin_activations enable row level security;
 alter table core.plugin_settings    enable row level security;
 alter table core.tenant_domains     enable row level security;
@@ -282,9 +283,9 @@ create policy memberships_manage on core.memberships for all
     and core.role_rank(role::text) < core.role_rank(core.my_role(tenant_id))
   );
 
--- guardianships: a guardian sees their own links; a tenant admin may read the tenant's links (support).
-create policy guardianships_self_read on core.guardianships for select using (user_id = core.current_user_id());
-create policy guardianships_admin_read on core.guardianships for select using (core.is_member_of(tenant_id, 'admin'));
+-- participant_accounts: a user sees their own links; a tenant admin may read the tenant's links (support).
+create policy participant_accounts_self_read on core.participant_accounts for select using (user_id = core.current_user_id());
+create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
 
 -- plugin activation/settings: admin+ manage (plugins:manage, doc 04 §3); any member may read which are on.
 create policy plugin_activations_read  on core.plugin_activations for select using (core.is_member_of(tenant_id));

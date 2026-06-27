@@ -120,7 +120,7 @@ $$;
 
 -- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 -- │ ★ redeem_credit_into_session — the atomic redemption RPC (doc 08 §6). SECURITY DEFINER plpgsql.           │
--- │   Validates guardian_can_act + isRedeemable (status/expiry/windows) → applies match rules → SELECT … FOR   │
+-- │   Validates can_act_for_participant + isRedeemable (status/expiry/windows) → applies match rules → SELECT … FOR   │
 -- │   UPDATE capacity check vs effective capacity → inserts the makeup → flips the credit to redeemed. Raises  │
 -- │   the documented codes (CREDIT_EXPIRED, SESSION_FULL, …) via RAISE so the app maps them (doc 02 §5).       │
 -- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -147,8 +147,8 @@ begin
   end if;
 
   -- (1a) The credit belongs to a participant the caller may act for (doc 08 §6 step 1, doc 04 §7).
-  if not core.guardian_can_act(v_credit.participant_id) then
-    raise exception 'NOT_A_GUARDIAN' using errcode = 'P0001';
+  if not core.can_act_for_participant(v_credit.participant_id) then
+    raise exception 'NOT_A_PARTICIPANT' using errcode = 'P0001';
   end if;
 
   -- (1b) isRedeemableNow (doc 08 §5): status active + not soft-deleted + within expiry + within a window.
@@ -303,29 +303,29 @@ create policy attendance_write_own on public.attendance for all      -- attendan
     )
   );
 -- family reads their participant's attendance (the portal docházka view).
-create policy attendance_family_read on public.attendance for select using (core.guardian_can_act(participant_id));
+create policy attendance_family_read on public.attendance for select using (core.can_act_for_participant(participant_id));
 
 -- excuses: staff manage (coach+); family reads their participant's excuses; self-excuse insert by family is
 -- routed through a use-case (createSelfExcuse, doc 08 §3) under the same guardian predicate.
 create policy excuses_staff_rw on public.excuses for all
   using (core.is_member_of(tenant_id, 'coach')) with check (core.is_member_of(tenant_id, 'coach'));
-create policy excuses_family_read on public.excuses for select using (core.guardian_can_act(participant_id));
+create policy excuses_family_read on public.excuses for select using (core.can_act_for_participant(participant_id));
 create policy excuses_family_insert on public.excuses for insert
-  with check (source = 'self' and core.guardian_can_act(participant_id));
+  with check (source = 'self' and core.can_act_for_participant(participant_id));
 
 -- credits: staff manage = admin+ (credits:manage/grant, doc 04 §3); coach 'own' read through the source course;
 -- FAMILY read their participant's credits (the portal balance, doc 03 §7 example 2).
 create policy credits_staff_read on public.credits for select using (core.is_member_of(tenant_id));
 create policy credits_staff_write on public.credits for all
   using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
-create policy credits_family_read on public.credits for select using (core.guardian_can_act(participant_id));
+create policy credits_family_read on public.credits for select using (core.can_act_for_participant(participant_id));
 
 -- makeups: staff read = member, write = coach+ (e.g. marking attended); FAMILY read their participant's; the
 -- booking itself happens through redeem_credit_into_session (SECURITY DEFINER), not a direct insert.
 create policy makeups_staff_read on public.makeups for select using (core.is_member_of(tenant_id));
 create policy makeups_staff_write on public.makeups for all
   using (core.is_member_of(tenant_id, 'coach')) with check (core.is_member_of(tenant_id, 'coach'));
-create policy makeups_family_read on public.makeups for select using (core.guardian_can_act(participant_id));
+create policy makeups_family_read on public.makeups for select using (core.can_act_for_participant(participant_id));
 
 -- credit_audit: append-only, readable by admin+ (the participant-profile modal's history, doc 08 §8).
 create policy credit_audit_read on public.credit_audit for select

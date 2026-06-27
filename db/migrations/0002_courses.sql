@@ -6,7 +6,7 @@
 --   • STAFF  read  = any member          → core.is_member_of(tenant_id)
 --   • STAFF  write = role-gated          → core.is_member_of(tenant_id, 'coach'|'admin')
 --   • COACH  'own' = assigned to the row → AND exists(coach_assignments …)  (1–2 examples shown)
---   • FAMILY        = guardian link      → core.guardian_can_act(participant_id)
+--   • FAMILY        = participant account → core.can_act_for_participant(participant_id)
 --   • ANON  catalogue                    → to anon using (show_on_public and status='active')
 
 -- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -38,10 +38,10 @@ create table if not exists public.participants (
   updated_at    timestamptz not null default now()
 );
 
--- Now that public.participants exists, wire the deferred FK from core.guardianships (declared in 0001).
+-- Now that public.participants exists, wire the deferred FK from core.participant_accounts (declared in 0001).
 do $$ begin
-  alter table core.guardianships
-    add constraint guardianships_participant_fk
+  alter table core.participant_accounts
+    add constraint participant_accounts_participant_fk
     foreign key (participant_id) references public.participants(id) on delete cascade;
 exception when duplicate_object then null; end $$;
 
@@ -208,7 +208,7 @@ alter table public.participant_field_values  enable row level security;
 create policy participants_staff_read  on public.participants for select using (core.is_member_of(tenant_id));
 create policy participants_staff_write on public.participants for all
   using (core.is_member_of(tenant_id, 'coach')) with check (core.is_member_of(tenant_id, 'coach'));
-create policy participants_family_read on public.participants for select using (core.guardian_can_act(id));
+create policy participants_family_read on public.participants for select using (core.can_act_for_participant(id));
 
 -- courses: read = any member; write_any = admin+; write_own = coach assigned to THIS course (doc 04 §4 verbatim).
 -- Multiple FOR-policies are OR-ed by Postgres, so an owner passes via _any, a coach only via _own.
@@ -293,7 +293,7 @@ create policy applications_public_insert on public.applications for insert to an
 create policy enrollments_staff_read on public.enrollments for select using (core.is_member_of(tenant_id));
 create policy enrollments_staff_write on public.enrollments for all
   using (core.is_member_of(tenant_id, 'coach')) with check (core.is_member_of(tenant_id, 'coach'));
-create policy enrollments_family_read on public.enrollments for select using (core.guardian_can_act(participant_id));
+create policy enrollments_family_read on public.enrollments for select using (core.can_act_for_participant(participant_id));
 
 -- participant_field_values: follow the enrollment's access (member read; coach+ write).
 create policy participant_field_values_read on public.participant_field_values for select
