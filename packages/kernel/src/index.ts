@@ -240,6 +240,11 @@ export {
   AUDIT_ROW_TRIGGER_FN_SQL,
   attachAuditTriggerSql,
   AUDIT_SQL,
+  PARTICIPANT_ACCOUNTS_SQL,
+  CAN_ACT_FOR_PARTICIPANT_SQL,
+  INVITATIONS_SQL,
+  ACCEPT_INVITATION_SQL,
+  INVITATIONS_ALL_SQL,
 } from './db'
 
 // --- fields (the schema-driven custom-field system; module authored by a sibling agent) ---

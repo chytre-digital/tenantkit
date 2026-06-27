@@ -186,3 +186,126 @@ export const CORE_FUNCTIONS_SQL = [
   SET_UPDATED_AT_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,
 ].join('\n')
+
+/**
+ * PARTICIPANT ACCOUNTS + INVITATIONS — the generic, vendor-neutral building blocks for "invite a user by email".
+ *
+ * Two concepts, both "invited by email": a PARTICIPANT ACCOUNT (a user linked to a participant; base relation
+ * 'self' — an adult/own participant managing their own enrollment) and a STAFF membership. There is deliberately
+ * NO "guardian" here: "guardian" is an APP-LEVEL relation VALUE (e.g. a kid's account) — core stays
+ * participant-generic. `core.participant_accounts` + `core.can_act_for_participant()` SUPERSEDE the legacy
+ * guardian-named `core.guardianships` + `GUARDIAN_CAN_ACT_SQL` above.
+ *
+ * The invitation token is the app-side claim; the identity-provider account + sign-in are the adapter's. So
+ * `accept_invitation` takes the actor id AND the actor's VERIFIED email EXPLICITLY (a service-role connection
+ * has no JWT to read them from) — keeping it vendor-neutral (no `auth.users` read in core). The Supabase adapter
+ * resolves the user-by-email and the verified email from `auth.users`; a different adapter resolves them its way.
+ */
+
+/** Generic participant-account link (supersedes core.guardianships). `relation` defaults to 'self'. */
+export const PARTICIPANT_ACCOUNTS_SQL = /* sql */ `
+create table if not exists core.participant_accounts (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null,
+  participant_id uuid not null,                                  -- → the app's participants table (FK added by the app)
+  tenant_id      uuid not null references core.tenants(id) on delete cascade,
+  relation       text not null default 'self',                  -- 'self' (adult/own) | app values e.g. 'guardian','parent'
+  is_primary     boolean not null default true,
+  created_by     uuid,
+  created_at     timestamptz not null default now(),
+  unique (user_id, participant_id)
+);
+create index if not exists participant_accounts_user_idx        on core.participant_accounts(user_id);
+create index if not exists participant_accounts_participant_idx on core.participant_accounts(participant_id);
+alter table core.participant_accounts enable row level security;
+create policy participant_accounts_self_read  on core.participant_accounts for select using (user_id = core.current_user_id());
+create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
+`
+
+/** May the caller act for this participant? SECURITY DEFINER RLS predicate (supersedes GUARDIAN_CAN_ACT_SQL). */
+export const CAN_ACT_FOR_PARTICIPANT_SQL = /* sql */ `
+create or replace function core.can_act_for_participant(p_participant uuid)
+  returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from core.participant_accounts pa
+    where pa.participant_id = p_participant and pa.user_id = core.current_user_id()
+  )
+$$;
+`
+
+/** Generic invitations — kind 'participant' (→ participant_account) | 'staff' (→ rank-capped membership). */
+export const INVITATIONS_SQL = /* sql */ `
+create table if not exists core.invitations (
+  id               uuid primary key default gen_random_uuid(),
+  tenant_id        uuid not null references core.tenants(id) on delete cascade,
+  email            text not null,
+  kind             text not null check (kind in ('participant', 'staff')),
+  role             core.app_role,                                              -- staff invites only
+  participant_id   uuid,                                                       -- participant invites only
+  relation         text,                                                       -- 'self' | app values
+  token            uuid not null unique default gen_random_uuid(),
+  status           text not null default 'pending' check (status in ('pending', 'accepted', 'revoked', 'expired')),
+  invited_by       uuid,
+  invited_by_role  core.app_role,                                              -- snapshot for the staff rank-cap at accept
+  expires_at       timestamptz not null default (now() + interval '14 days'),
+  accepted_at      timestamptz,
+  accepted_user_id uuid,
+  created_at       timestamptz not null default now()
+);
+create unique index if not exists invitations_pending_participant_uniq
+  on core.invitations (tenant_id, lower(email), participant_id) where status = 'pending' and kind = 'participant';
+create unique index if not exists invitations_pending_staff_uniq
+  on core.invitations (tenant_id, lower(email)) where status = 'pending' and kind = 'staff';
+alter table core.invitations enable row level security;
+create policy invitations_admin_rw on core.invitations for all
+  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+`
+
+/**
+ * Bind an invitation to a VERIFIED user → participant_account or rank-capped membership. SECURITY DEFINER to
+ * break the RLS chicken-and-egg (insert into a tenant the user isn't in yet), like create_tenant_with_owner.
+ * Vendor-neutral: the adapter passes the authenticated user's id AND verified email (no auth.users read here).
+ */
+export const ACCEPT_INVITATION_SQL = /* sql */ `
+create or replace function core.accept_invitation(p_token uuid, p_user uuid, p_user_email text)
+  returns table (tenant_id uuid, kind text)
+  language plpgsql security definer as $$
+declare v_inv core.invitations%rowtype;
+begin
+  select * into v_inv from core.invitations where token = p_token for update;
+  if not found                 then raise exception 'invite_not_found'  using errcode = 'P0001'; end if;
+  if v_inv.status <> 'pending' then raise exception 'invite_not_pending' using errcode = 'P0001'; end if;
+  if v_inv.expires_at <= now() then
+    update core.invitations set status = 'expired' where id = v_inv.id;
+    raise exception 'invite_expired' using errcode = 'P0001';
+  end if;
+  if p_user_email is null or lower(p_user_email) is distinct from lower(v_inv.email) then
+    raise exception 'invite_email_mismatch' using errcode = 'P0001';
+  end if;
+
+  if v_inv.kind = 'participant' then
+    insert into core.participant_accounts (user_id, participant_id, tenant_id, relation, is_primary, created_by)
+    values (p_user, v_inv.participant_id, v_inv.tenant_id, coalesce(v_inv.relation, 'self'), true, v_inv.invited_by)
+    on conflict (user_id, participant_id) do nothing;
+  else
+    if v_inv.role is null or v_inv.role = 'owner'
+       or core.role_rank(v_inv.role::text) >= core.role_rank(coalesce(v_inv.invited_by_role::text, 'owner')) then
+      raise exception 'invite_role_invalid' using errcode = 'P0001';
+    end if;
+    insert into core.memberships (user_id, tenant_id, role)
+    values (p_user, v_inv.tenant_id, v_inv.role)
+    on conflict (user_id, tenant_id) do nothing;
+  end if;
+
+  update core.invitations set status = 'accepted', accepted_user_id = p_user, accepted_at = now() where id = v_inv.id;
+  return query select v_inv.tenant_id, v_inv.kind;
+end $$;
+`
+
+/** The whole invitation system, in dependency order — applied by the migration helper. */
+export const INVITATIONS_ALL_SQL = [
+  PARTICIPANT_ACCOUNTS_SQL,
+  CAN_ACT_FOR_PARTICIPANT_SQL,
+  INVITATIONS_SQL,
+  ACCEPT_INVITATION_SQL,
+].join('\n')
