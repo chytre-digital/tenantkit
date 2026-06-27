@@ -38,7 +38,7 @@ Every tenant-scoped table's policy reads `using (core.is_member_of(tenant_id))` 
 `with check` where writes need it) — **no inline subquery, no recursion**. The **membership table's own
 policies stay self-row-only** (a user sees/edits only their own membership rows), so they never call the
 helper and the recursion is structurally impossible. The family side has the parallel
-`guardian_can_act(participant)` ([ADR-0007](0007-guardian-participant-identity.md)).
+`can_act_for_participant(participant)` ([ADR-0007](0007-participant-accounts.md)).
 
 ## Consequences
 

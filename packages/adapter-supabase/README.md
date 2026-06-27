@@ -97,7 +97,7 @@ That's it. The session cookie carries the user's JWT, PostgREST sets `request.jw
 | `ScopedDb.client` *(escape hatch)* | the raw `SupabaseClient` for idiomatic `.from()` on your own tables |
 | `IdentityProvider.*` | `supabase.auth.*` — password / magic link (via `admin.generateLink`) / OTP / OAuth / `admin.createUser` |
 | `SessionStore.refresh()` | the `updateSession` cookie‑rotation pattern (call it in middleware) |
-| `AuthzStore.*` | service‑role reads of `core.{profiles,memberships,guardianships,plugin_activations,tenants}` keyed by the verified `userId` |
+| `AuthzStore.*` | service‑role reads of `core.{profiles,memberships,participant_accounts,plugin_activations,tenants}` keyed by the verified `userId` |
 | `StorageProvider.*` | `supabase.storage.*` |
 
 ## Database setup (one migration)

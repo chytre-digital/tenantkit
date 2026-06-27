@@ -14,8 +14,8 @@ Apply in numeric order — each depends on the previous:
 
 | # | File | Creates | Depends on |
 |---|------|---------|------------|
-| 1 | `migrations/0001_core.sql` | schema `core`; `tenants` · `profiles` · `memberships` (+ `one_owner_per_tenant`) · `guardianships` · `plugin_activations` · `plugin_settings` · `tenant_domains` · `audit_log` · `email_events` · `outbox` · `notifications` · `platform_admins`; the functions `role_rank()`, `is_member_of()` *(SECURITY DEFINER)*, `my_role()`, `guardian_can_act()` *(SECURITY DEFINER)*, `set_updated_at()`, `create_tenant_with_owner()` *(SECURITY DEFINER)*; RLS on every table. | Postgres ≥ 14 (no vendor schema) |
-| 2 | `migrations/0002_courses.sql` | schema `public` course/enrollment domain: `participants` · `courses` · `sessions` · `course_tags` · `coach_assignments` · `validity_windows` · `custom_field_definitions` · `course_field_assignments` · `applications` · `enrollments` · `participant_field_values`; the domain enums; `set_updated_at` triggers; RLS (staff via `is_member_of`, coach **own** via `coach_assignments`, family via `guardian_can_act`, anon public catalogue). Wires the deferred `core.guardianships.participant_id` FK. | 0001 |
+| 1 | `migrations/0001_core.sql` | schema `core`; `tenants` · `profiles` · `memberships` (+ `one_owner_per_tenant`) · `participant_accounts` · `plugin_activations` · `plugin_settings` · `tenant_domains` · `audit_log` · `email_events` · `outbox` · `notifications` · `platform_admins`; the functions `role_rank()`, `is_member_of()` *(SECURITY DEFINER)*, `my_role()`, `can_act_for_participant()` *(SECURITY DEFINER)*, `set_updated_at()`, `create_tenant_with_owner()` *(SECURITY DEFINER)*; RLS on every table. | Postgres ≥ 14 (no vendor schema) |
+| 2 | `migrations/0002_courses.sql` | schema `public` course/enrollment domain: `participants` · `courses` · `sessions` · `course_tags` · `coach_assignments` · `validity_windows` · `custom_field_definitions` · `course_field_assignments` · `applications` · `enrollments` · `participant_field_values`; the domain enums; `set_updated_at` triggers; RLS (staff via `is_member_of`, coach **own** via `coach_assignments`, family via `can_act_for_participant`, anon public catalogue). Wires the deferred `core.participant_accounts.participant_id` FK. | 0001 |
 | 3 | `migrations/0003_omluvenky.sql` | `attendance` · `excuses` · `credits` · `makeups` · `credit_audit`; the omluvenka enums; the ★ **`public.redeem_credit_into_session(p_credit, p_session)`** SECURITY DEFINER RPC; the `credit.issued` outbox trigger; RLS. | 0002 |
 | — | `seed.sql` | the "Plavecká škola Delfínek" demo (a `studio` tenant, an owner + a guardian + a child, 3 courses with month-based age bands + sessions, and one excused attendance that minted an active credit). | 0001–0003 |
 
@@ -43,7 +43,7 @@ definitions.
   through the session's course for `attendance`/`sessions`). Multiple `FOR` policies are **OR-ed** by Postgres,
   so `*_write_any` (admin) and `*_write_own` (coach) compose. See `courses_write_own`, `sessions_write_own`,
   `attendance_write_own` for the worked examples (doc 04 §4).
-- **Family is relational.** `core.guardian_can_act(participant_id)` (also `SECURITY DEFINER`) gates a guardian's
+- **Family is relational.** `core.can_act_for_participant(participant_id)` (also `SECURITY DEFINER`) gates a guardian's
   reads of their participant's `participants`/`enrollments`/`attendance`/`credits`/`makeups` rows (doc 04 §7).
 - **Anon catalogue.** Public reads are scoped `to anon using (show_on_public and status = 'active')` (doc 03 §7).
 - **Memberships are self-row.** `memberships_self_read` exposes only `user_id = core.current_user_id()`; cross-member admin
@@ -67,6 +67,6 @@ The RLS predicates read the caller via `core.current_user_id()` — set `request
 do this from the JWT) or `SET LOCAL app.user_id = '<uuid>'` per request. On Supabase, `supabase db push` /
 `supabase db reset` also apply `migrations/`.
 
-> The `redeem_credit_into_session` RPC and all `is_member_of`/`guardian_can_act` predicates are
+> The `redeem_credit_into_session` RPC and all `is_member_of`/`can_act_for_participant` predicates are
 > `SECURITY DEFINER` with a pinned `search_path`; review them as privileged code (doc 04 §6 — privileged paths
-> always re-check authorization, which the RPC does via `guardian_can_act` before any write).
+> always re-check authorization, which the RPC does via `can_act_for_participant` before any write).

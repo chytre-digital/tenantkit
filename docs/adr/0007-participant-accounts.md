@@ -1,4 +1,4 @@
-# ADR-0007 — Guardian ↔ Participant identity
+# ADR-0007 — Participant accounts identity
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
@@ -21,12 +21,12 @@ audience and be enforceable by **RLS**, not just app code.
 ## Decision
 
 Model **Guardian (an account) ↔ Participant (a child/attendee)** as a first-class relationship via
-**`core.guardianships`** — `{ account, participantId, relation }`. A participant is the person who attends; a
+**`core.participant_accounts`** — `{ account, participantId, relation }`. A participant is the person who attends; a
 guardian is the family account that may act for them. Adults attending for themselves are represented with
 **`relation='self'`** (one account, a participant record it owns) rather than a separate code path.
-`requireClaims()` returns `guardianships[]` alongside staff `memberships[]`; the family audience resolves a
-`GuardianContext` of the participants the caller may act for. RLS is enforced by a SECURITY DEFINER
-predicate **`guardian_can_act(participant)`**, used by every family-facing policy (portal reads, self-excuse,
+`requireClaims()` returns `participantAccounts[]` alongside staff `memberships[]`; the family audience resolves a
+`ParticipantContext` of the participants the caller may act for. RLS is enforced by a SECURITY DEFINER
+predicate **`can_act_for_participant(participant)`**, used by every family-facing policy (portal reads, self-excuse,
 redemption), mirroring how `is_member_of()` ([ADR-0008](0008-rls-is-member-of.md)) DRYs the staff side.
 
 ## Consequences
@@ -38,7 +38,7 @@ credits, and makeups all hang off a stable participant identity.
 tested as carefully as the staff path; relationship edge cases (shared custody, transferring a participant
 between guardians, an adult who is also a guardian) need explicit handling.
 **Follow-ups:** Schema and constraints in [03](../03-data-model.md); enrollment must create/link
-participants under the right guardianship; portal "my children" + per-child balance views.
+participants under the right participant account; portal "my children" + per-child balance views.
 
 ## Alternatives considered
 

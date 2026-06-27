@@ -248,7 +248,7 @@ different seeded set:
 | Poznámka | `note` | participant | — |
 
 No *Zákonný zástupce*, no *Datum narození* required; the participant manages themselves via a `self`‑relation
-guardianship ([03 §3](03-data-model.md), [07 §6](07-registration-and-enrollment.md)). The two presets prove the
+participant account ([03 §3](03-data-model.md), [07 §6](07-registration-and-enrollment.md)). The two presets prove the
 point: **one engine, two products, zero forked form code.**
 
 ## 5. Validation parity — one Zod schema, client + server

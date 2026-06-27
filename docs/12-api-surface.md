@@ -49,7 +49,7 @@ RLS denials (`42501`) surface as `403 FORBIDDEN` ([04 §4](04-roles-and-permissi
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | `body`/`query` parse fail (Zod) — carries `issues`. |
 | 401 | `UNAUTHORIZED` | no session on a non‑public route. |
-| 403 | `NOT_A_MEMBER` · `NOT_A_GUARDIAN` · `FORBIDDEN` · `UPGRADE_REQUIRED` | audience/tenant/role/entitlement gate; RLS `42501`. |
+| 403 | `NOT_A_MEMBER` · `NOT_A_PARTICIPANT` · `FORBIDDEN` · `UPGRADE_REQUIRED` | audience/tenant/role/entitlement gate; RLS `42501`. |
 | 404 | `NOT_FOUND` | row absent **or** invisible under RLS (no existence oracle). |
 | 409 | `CONFLICT` | unique violation (`23505`) — e.g. double active enrollment. |
 | 422 | `PLUGIN_NOT_ENABLED` · `SESSION_FULL` · `CREDIT_EXPIRED` · `COURSE_LOCKED` · `EXCUSE_DEADLINE_PASSED` · `CAPACITY_BELOW_OCCUPANCY` · `LIMIT_REACHED` | domain‑rule / check‑constraint (`23514`/`P0001`) → `mapDomainError`. |
@@ -85,7 +85,7 @@ Every row in the catalogue declares an **audience** ([02 §2](02-reservation-cor
 |---|---|---|---|
 | `public` | anon (no session) | — | RLS `anon` policies only ([03 §7](03-data-model.md)); rate‑limited where it writes. |
 | `staff` | tenant member | `requireClaims()` + tenant ([02 §7](02-reservation-core.md)) | `minRole` (rank) **AND** `can` (`resource:action:scope`). |
-| `family` | guardian / participant | `requireClaims()` + guardianships | relational — `core.guardian_can_act()` ([04 §7](04-roles-and-permissions.md)); never `minRole`/`can`. |
+| `family` | guardian / participant | `requireClaims()` + participant accounts | relational — `core.can_act_for_participant()` ([04 §7](04-roles-and-permissions.md)); never `minRole`/`can`. |
 | `operator` | platform admin | `core.is_platform_admin()` ([04 §6](04-roles-and-permissions.md)) | cross‑tenant; outside tenant RLS. Ops back‑office only. |
 
 > **Reading the catalogue.** "minRole/can" is the **staff** gate (`—` for non‑staff audiences); "Plugin?" is the
@@ -124,7 +124,7 @@ answer `202` regardless of account existence (anti‑enumeration, [05 §6](05-au
 | `POST /api/portal/auth/magic-link` | public | — | — | Family passwordless sign‑in link ([05 §2c](05-auth.md)). | `{email}`, `rateLimit:'magic-link'` → **always `202`**. |
 | `POST /api/portal/auth/otp/request` | public | — | — | 6‑digit code fallback ([05 §2e](05-auth.md)). | `{email}`, `rateLimit:'otp'` → `202`. |
 | `POST /api/portal/auth/otp/verify` | public | — | — | Verify code → session. | `{email,token}`, `rateLimit:'otp'` → `200 {}` + cookie; 5 wrong → 15‑min lock. |
-| `GET /auth/callback` | public | — | — | OAuth / magic‑link return; `exchangeCodeForSession` (outside `[locale]`, [05 §7](05-auth.md)). | `?code&next` → `302 next`; binds pending guardianships ([05 §3](05-auth.md)). |
+| `GET /auth/callback` | public | — | — | OAuth / magic‑link return; `exchangeCodeForSession` (outside `[locale]`, [05 §7](05-auth.md)). | `?code&next` → `302 next`; binds pending participant accounts ([05 §3](05-auth.md)). |
 | `POST /api/auth/password-reset` | public | — | — | Magic‑link‑style reset email ([05 §6](05-auth.md)). | `{email}` → `202`. |
 | `GET /api/safe-link/resolve` | public | — | — | Resolve/validate an opaque token before its action ([05 §2f](05-auth.md)). | `?token` → `200 {purpose,object}`; invalid/expired/used → `410`/`422`. |
 
@@ -249,7 +249,7 @@ The QR funnel and catalogue, [07 §2](07-registration-and-enrollment.md). All `a
 
 ### 2.8 Portal (family)
 
-The participant portal, `audience:'family'` — scope **is** the guardianship ([04 §7](04-roles-and-permissions.md));
+The participant portal, `audience:'family'` — scope **is** the participant account ([04 §7](04-roles-and-permissions.md));
 no `minRole`/`can`. The omluvenka self‑service and makeup finder are [08 §3,§6](08-attendance-and-omluvenky.md);
 payments are the `payments` plugin's family routes (§2.9). GDPR export/erase per [03 §10](03-data-model.md).
 
@@ -258,7 +258,7 @@ payments are the `payments` plugin's family routes (§2.9). GDPR export/erase pe
 | `GET /api/portal/me` | family | — | — | The signed‑in guardian's profile + tenants. | → `200 {me}`. |
 | `GET /api/portal/dashboard` | family | — | — | Home: children, upcoming sessions, balance summary. | → `200 {dashboard}`. |
 | `GET /api/portal/participants` | family | — | — | "My children" (actable participants, [05 §3](05-auth.md)). | → `200 {participants}`. |
-| `POST /api/portal/participants` | family | — | — | *Přidat dítě* — new participant + `guardianships(relation='parent')` ([07 §6](07-registration-and-enrollment.md)). | `AddChildSchema` → `201 {participant}`. |
+| `POST /api/portal/participants` | family | — | — | *Přidat dítě* — new participant + `participant_accounts(relation='parent')` ([07 §6](07-registration-and-enrollment.md)). | `AddChildSchema` → `201 {participant}`. |
 | `GET /api/portal/sessions` | family | — | — | A participant's scheduled sessions / calendar. | `?participantId&from&to` → `200 {sessions}`. |
 | `POST /api/portal/sessions/:id/excuse` | family | — | — | **Self‑excuse** before `selfExcuseDeadlineHours`; writes `excuses(source='self')`, mints credit ([08 §3](08-attendance-and-omluvenky.md)). | `{participantId}`, rate‑limited → `200 {excuse,credit?}`; late → `422 EXCUSE_DEADLINE_PASSED`. |
 | `GET /api/portal/credits` | family | — | — | Credit balance / omluvenka list ([08 §6](08-attendance-and-omluvenky.md)). | `?participantId` → `200 {credits,balance}`. |
@@ -267,7 +267,7 @@ payments are the `payments` plugin's family routes (§2.9). GDPR export/erase pe
 | `POST /api/portal/makeups/:id/cancel` | family | — | — | Cancel a makeup before `minCancellationNoticeHours`; restores credit to `active` ([08 §6](08-attendance-and-omluvenky.md)). | → `200 {makeup}`; past notice → `422` (staff only). |
 | `GET /api/portal/payments` | family | — | — | The family's orders/receipts (reads `payments.orders`, [09 §5.2.2](09-plugins-and-subscriptions.md)). | `?cursor` → `200 {orders,page}`. |
 | `GET /api/portal/account/export` | family | — | — | GDPR data export (guardian + participants JSON, [03 §10](03-data-model.md)). | → `200 {export}` (or async job link). |
-| `DELETE /api/portal/account` | family | — | — | Account deletion: cascade guardianships, anonymize history ([03 §10](03-data-model.md)). | `{confirm}` → `202 {}`. |
+| `DELETE /api/portal/account` | family | — | — | Account deletion: cascade participant accounts, anonymize history ([03 §10](03-data-model.md)). | `{confirm}` → `202 {}`. |
 | `GET`/`PUT /api/portal/notifications/preferences` | family | — | — | Per‑event/channel `notification_preferences` ([10 §6](10-notifications-and-email.md)). | `{prefs:[…]}` → `200 {prefs}`. |
 | `GET /api/portal/notifications` | family | — | — | In‑app bell list ([10 §8](10-notifications-and-email.md)); realtime channel (§6). | `?unread&cursor` → `200 {notifications,page}`. |
 | `POST /api/portal/notifications/:id/read` | family | — | — | Mark an in‑app notification read (`read_at`). | → `200 {}`. |

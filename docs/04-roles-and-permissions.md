@@ -2,8 +2,8 @@
 
 > How **who you are** becomes **what you may do**, on both gates. The same definitions feed `withRoute`
 > (the app edge, see [02 §4](02-reservation-core.md)) **and** Postgres RLS (the database invariant, see
-> [03 §7](03-data-model.md)). Names here (`app_role`, `core.memberships`, `core.guardianships`,
-> `core.is_member_of()`, `core.guardian_can_act()`) are authoritative and taken verbatim from
+> [03 §7](03-data-model.md)). Names here (`app_role`, `core.memberships`, `core.participant_accounts`,
+> `core.is_member_of()`, `core.can_act_for_participant()`) are authoritative and taken verbatim from
 > [03](03-data-model.md).
 
 ## 1. The actor model
@@ -15,19 +15,19 @@ class* a request belongs to — that is the `audience` of the route ([02 §2](02
 | Actor class | CZ (UI) | Backed by | Identity row | Surface | `audience` |
 |---|---|---|---|---|---|
 | **Staff** | Personál | a **membership** in a tenant | `core.memberships(user_id, tenant_id, role)` | Admin console | `staff` |
-| **Family** | Rodina | a **guardianship** over participant(s) | `core.guardianships(user_id, participant_id, relation)` | Participant portal | `family` |
+| **Family** | Rodina | a **participant account** over participant(s) | `core.participant_accounts(user_id, participant_id, relation)` | Participant portal | `family` |
 | **Anonymous applicant** | Zájemce | nothing (no session) | — (later a `safe_link_token` on `public.applications`) | Public/enrollment | `public` |
 | **Platform operator** | Provozovatel | a **platform-admin** grant | `core.platform_admins(user_id)` (§6) | Ops back-office | `operator` |
 
 Key facts that the rest of this doc builds on:
 
 - A single `auth.users` row may be **both** staff and family (a coach whose own child attends the studio).
-  `requireClaims()` returns `memberships[]` **and** `guardianships[]`; the route's `audience` picks which
+  `requireClaims()` returns `memberships[]` **and** `participantAccounts[]`; the route's `audience` picks which
   context is *required* and which RLS predicate family applies. See [02 §7](02-reservation-core.md) and
   [05 §4](05-auth.md).
 - **Staff authorization is role-ranked and permission-scoped** (this document, §2–§4).
 - **Family authorization is relational**, not role-ranked: a guardian may act *only* for the participants they
-  are linked to, via `core.guardian_can_act()` (§7).
+  are linked to, via `core.can_act_for_participant()` (§7).
 - **Platform-operator authorization is cross-tenant** and lives *outside* tenant RLS (§6).
 
 ## 2. Role hierarchy
@@ -336,26 +336,26 @@ How it is fenced off:
 ## 7. Family authorization
 
 Family actors are not role-ranked; they are authorized **relationally**. The single predicate is
-`core.guardian_can_act(participant_id)` from [03 §7](03-data-model.md):
+`core.can_act_for_participant(participant_id)` from [03 §7](03-data-model.md):
 
 ```sql
-create function core.guardian_can_act(p_participant uuid)
+create function core.can_act_for_participant(p_participant uuid)
   returns boolean language sql security definer stable as $$
   select exists (
-    select 1 from core.guardianships g
+    select 1 from core.participant_accounts g
     where g.participant_id = p_participant
       and g.user_id        = auth.uid())
 $$;
 ```
 
 - A guardian sees and acts on a participant's rows (`public.participants`, `enrollments`, `attendance`,
-  `credits`, `makeups`) **iff** a `core.guardianships` row links them — regardless of `relation`
+  `credits`, `makeups`) **iff** a `core.participant_accounts` row links them — regardless of `relation`
   (`parent | guardian | self`). `relation = 'self'` is just an adult guardian over their own participant row
   ([03 §3](03-data-model.md)); it grants no extra power, only models the link.
-- `withRoute({ audience: 'family' })` populates `ctx.guardian` (a `GuardianContext` of actable participant
+- `withRoute({ audience: 'family' })` populates `ctx.participant` (a `ParticipantContext` of actable participant
   ids, [02 §4](02-reservation-core.md)) and the same SQL predicate is the RLS `USING` clause — the two-gate
-  pattern again. Family routes never take a `minRole`/`can`; scope **is** the guardianship.
-- **No write crosses tenants or participants.** Even though `core.guardianships.tenant_id` is denormalized for
+  pattern again. Family routes never take a `minRole`/`can`; scope **is** the participant account.
+- **No write crosses tenants or participants.** Even though `core.participant_accounts.tenant_id` is denormalized for
   speed, the authority is the `(user_id, participant_id)` pair, so a guardian of child A can never touch
   child B's data.
 - Establishing the link (application approval → guardian match/invite; an adult self-managing with
@@ -374,9 +374,9 @@ request → resolve audience (route declares it; default 'staff')
   ├─ public    → no identity; RLS anon policies only (catalogue, slot availability)
   ├─ operator  → core.is_platform_admin(min)?            no → 403 FORBIDDEN
   │              yes → ops route (service role, re-checks in code)
-  ├─ family    → requireClaims(); guardianships non-empty?   no → 403 NOT_A_GUARDIAN
-  │              → ctx.guardian = actable participant ids
-  │              → RLS core.guardian_can_act() gates every row
+  ├─ family    → requireClaims(); participantAccounts non-empty?   no → 403 NOT_A_PARTICIPANT
+  │              → ctx.participant = actable participant ids
+  │              → RLS core.can_act_for_participant() gates every row
   └─ staff     → requireClaims()                              none → 401 UNAUTHORIZED
                  → resolve tenantId (param ‖ host ‖ active_tenant_id cookie)
                  → assertMember(tenant)?                       no → 403 NOT_A_MEMBER

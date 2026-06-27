@@ -18,7 +18,7 @@ Requires **Node ≥ 20**, **pnpm**, and (for integration tests) a local **Postgr
 ## Architecture rules (enforced)
 
 - **Postgres + RLS is the only hard dependency.** Don't add a query path that bypasses RLS outside the
-  `service` scope. Tenant isolation lives in the database (`core.is_member_of()` / `core.guardian_can_act()`).
+  `service` scope. Tenant isolation lives in the database (`core.is_member_of()` / `core.can_act_for_participant()`).
 - **The kernel is vendor‑free.** `@tenantkit/kernel` may not import a vendor SDK — only the **ports** in
   `packages/kernel/src/ports`. Vendors are adapter packages.
 - **Layer boundaries:** `domain → {domain, shared}` · `infrastructure → {infra, domain, shared}` ·

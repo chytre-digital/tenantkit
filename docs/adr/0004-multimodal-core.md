@@ -15,8 +15,8 @@ back-office. These differ along several independent axes at once:
 1. **Tenant type** — the tenant noun is app-configurable (`studio` here; `instructor` for NaLekci,
    `restaurant` for Restaurio) via `defineTenancy`.
 2. **Identity type** — two authenticated subjects coexist: **staff** (a user with `memberships` in a
-   tenant) and **family** (a Guardian/Participant account with `guardianships` over participants,
-   [ADR-0007](0007-guardian-participant-identity.md)). One account can be both.
+   tenant) and **family** (a Guardian/Participant account with `participant_accounts` over participants,
+   [ADR-0007](0007-participant-accounts.md)). One account can be both.
 3. **Auth method** — password, OAuth, magic link, OTP, and login-less **safe-link** tokens, all first-class.
 4. **Surface** — admin console, public, portal, ops.
 
@@ -30,7 +30,7 @@ Make the core **modal along all four axes with a single endpoint wrapper**. `wit
 the one way to write a route; an **`audience` option** (`'public' | 'staff' | 'family'`, default `'staff'`)
 selects the identity contract, and the same options object expresses `tenantFrom`, `minRole`/`can`,
 `plugin`, `entitlements`, `rateLimit`, and Zod `body`/`query`. `requireClaims()` returns *both* the
-`memberships` (staff) and `guardianships` (family) shapes; the requested `audience` decides which is
+`memberships` (staff) and `participantAccounts` (family) shapes; the requested `audience` decides which is
 required. RLS — the second gate — backs whichever path runs. Surfaces are routed by host/cookie in
 `proxy.ts`; defaults are safe (deny).
 
@@ -42,8 +42,8 @@ staff and family without duplicate identities.
 **Negative / costs:** `withRoute` is a larger, more carefully-tested abstraction; `RouteCtx` carries both
 staff and family fields (some null per call); the audience/permission matrix must be covered by tests so a
 public route never silently exposes staff data.
-**Follow-ups:** Specify the family `GuardianContext` and `guardian_can_act()` RLS
-([ADR-0007](0007-guardian-participant-identity.md)); document audience-default and tenant-resolution order;
+**Follow-ups:** Specify the family `ParticipantContext` and `can_act_for_participant()` RLS
+([ADR-0007](0007-participant-accounts.md)); document audience-default and tenant-resolution order;
 rate-limit the auth-adjacent public routes.
 
 ## Alternatives considered

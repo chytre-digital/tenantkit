@@ -42,7 +42,7 @@ the same `withRoute` + RLS machinery serves all of them:
    NaLekci would pass `instructors`/`instructor_memberships`; Restaurio `restaurants`/`restaurant_memberships`.
 2. **Identity modality** — two kinds of authenticated subject coexist:
    - **Staff** — a user with `memberships` in a tenant (role‑scoped, admin console).
-   - **Family** — a **Guardian/Participant** account with `guardianships` over participants (portal).
+   - **Family** — a **Guardian/Participant** account with `participant_accounts` over participants (portal).
    `requireClaims()` returns both shapes; `withRoute` can require either (`audience: 'staff' | 'family'`).
 3. **Auth modality** — password, OAuth, magic link, OTP, and login‑less **safe‑link** tokens — all first‑class.
 4. **Surface modality** — admin console, public, portal, ops. A route declares which surface/audience it
@@ -131,7 +131,7 @@ export interface RouteCtx {
   can: (perm: Permission) => boolean
   entitlements: EntitlementsService | null
   // family:
-  guardian: GuardianContext | null        // when audience === 'family'
+  guardian: ParticipantContext | null     // when audience === 'family'
   // parsed inputs (typed via opts.body / opts.query):
   input: { body?: unknown; query?: unknown }
 }
@@ -143,7 +143,7 @@ export interface RouteCtx {
 2. Resolve locale from the request (cookie/header) → `ctx.locale`.
 3. If `audience !== 'public'`: `resolveClaims(req, runtime)` → `401 UNAUTHORIZED` if no session.
 4. Staff: resolve `tenantId` via `tenantFrom`; assert membership → `403 NOT_A_MEMBER`; resolve `role`.
-   Family: resolve `GuardianContext` (the participants this account may act for).
+   Family: resolve `ParticipantContext` (the participants this account may act for).
 5. `minRole`/`can`: `roleAtLeast(role, minRole)` and `can(perm)` → `403 FORBIDDEN`.
 6. `plugin`: tenant has it enabled (`plugin_activations`) **and** entitled (tier) → else `422 PLUGIN_NOT_ENABLED`.
 7. `entitlements`: `checkEntitlements(...)` → `403 UPGRADE_REQUIRED` / `FEATURE_NOT_AVAILABLE`.
@@ -235,7 +235,7 @@ interface AuthContext {
   email: string | null
   profile: ProfileClaims                     // display name, locale, avatar…
   memberships: Membership[]                  // { tenantId, role } — STAFF side
-  guardianships: Guardianship[]              // { participantId, relation } — FAMILY side
+  participantAccounts: ParticipantAccount[]  // { participantId, relation } — FAMILY side
 }
 ```
 
@@ -245,7 +245,7 @@ Key behaviors (lifted from `main-panel`'s `requireClaims`, generalized):
   guarded by a prior `select`). We *also* offer the DB‑trigger variant in `@reservation-core/db` for teams
   who prefer it; default is app‑code for testability.
 - **Cached** with React `cache()` → one DB round‑trip per request regardless of how many components call it.
-- A single account can be **both** staff (memberships) and family (guardianships); the audience requested by
+- A single account can be **both** staff (memberships) and family (participant accounts); the audience requested by
   the route decides which context is required.
 
 **Active tenant** (staff): `active_tenant_id` httpOnly cookie, validated against `memberships`, defaulting to
@@ -443,7 +443,7 @@ create policy tenant_rw on public.courses for all
   with check (core.is_member_of(tenant_id, 'coach'));
 ```
 
-Also ships: `set_updated_at()` trigger, `core.role_rank()`, the `guardian_can_act(participant)` predicate for
+Also ships: `set_updated_at()` trigger, `core.role_rank()`, the `can_act_for_participant(participant)` predicate for
 family RLS, and the **atomic capacity RPC pattern** (`SELECT … FOR UPDATE` to prevent overbooking, with
 waitlist promotion) generalized from `main-panel`'s `marketplace_create_booking`. See [03](03-data-model.md)
 and [08](08-attendance-and-omluvenky.md).

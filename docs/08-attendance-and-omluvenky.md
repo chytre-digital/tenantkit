@@ -55,7 +55,7 @@ A guardian may excuse a participant **themselves**, but only up to
 ```
 POST /api/portal/sessions/:id/excuse      (withRoute: family)
 ```
-`createSelfExcuse` validates: the participant is the caller's (guardianship); the session is in the future and
+`createSelfExcuse` validates: the participant is the caller's (participant account); the session is in the future and
 `now < starts_at − deadlineHours`; not already excused. On success it writes the same `excuses` row
 (`source='self'`) and runs issuance (§4). Past the deadline → `422 EXCUSE_DEADLINE_PASSED`. This endpoint is
 rate‑limited per account.
@@ -135,7 +135,7 @@ body: { sessionId }
 
 `redeemCredit` runs in a **single `SECURITY DEFINER` RPC** (`redeem_credit_into_session`) for atomicity:
 
-1. The credit belongs to a participant the caller may act for (`guardian_can_act`) and `isRedeemableNow`.
+1. The credit belongs to a participant the caller may act for (`can_act_for_participant`) and `isRedeemableNow`.
 2. **Match rules** from the *target* session's course vs the credit (driven by the **source** course's
    `redeemMatch`):
    - `ageMatchRequired` → participant's age (from `date_of_birth`) ∈ target course `[age_min_months,

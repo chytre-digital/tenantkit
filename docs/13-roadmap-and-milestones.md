@@ -44,11 +44,11 @@ vertical slice**, so every later phase is "add a domain", never "discover the pl
 | Supabase | The four client factories (`server`/`browser`/`anon`/`admin`) with **parameterized env**, `proxy.ts` `updateSession`. | [01 §4](01-architecture.md) |
 | `withRoute` | The wrapper + pipeline (audience → tenant → role/`can` → plugin → entitlement → rateLimit → validation). | [02 §4](02-reservation-core.md) |
 | HTTP/validation | `jsonOk`/`jsonError`, `HttpError` + factories, PG‑error map, `parseJson`/`parseQuery`, the `{error,code,details,issues}` envelope. | [02 §5,§6](02-reservation-core.md), [12 §1.1](12-api-surface.md) |
-| Identity | `requireClaims()` → `AuthContext` (memberships **and** guardianships), cached; profile bootstrap. | [02 §7](02-reservation-core.md), [05 §4](05-auth.md) |
+| Identity | `requireClaims()` → `AuthContext` (memberships **and** participant accounts), cached; profile bootstrap. | [02 §7](02-reservation-core.md), [05 §4](05-auth.md) |
 | Tenancy | `defineTenancy`, `resolveTenant`, `assertMember`, `provisionTenant` (`create_tenant_with_owner`), `active_tenant_id` cookie + `switch-tenant`. | [02 §8](02-reservation-core.md) |
 | RBAC | `AppRole`, `roleAtLeast`, `can(role,perm)`, the `Permission` type; `TERMINAR_PERMISSIONS` stub. | [02 §9](02-reservation-core.md), [04 §2,§3](04-roles-and-permissions.md) |
 | i18n | `createI18n` (next‑intl routing/request/navigation), `cs`/`en`, single config. | [02 §13](02-reservation-core.md) |
-| **DB / RLS recipe** | `@reservation-core/db`: `is_member_of()` (SECURITY DEFINER), `role_rank()`, `my_role()`, `guardian_can_act()`, `set_updated_at()`; the canonical RLS macro + a sample migration. | [02 §14](02-reservation-core.md), [03 §7](03-data-model.md), [04 §4,§5](04-roles-and-permissions.md) |
+| **DB / RLS recipe** | `@reservation-core/db`: `is_member_of()` (SECURITY DEFINER), `role_rank()`, `my_role()`, `can_act_for_participant()`, `set_updated_at()`; the canonical RLS macro + a sample migration. | [02 §14](02-reservation-core.md), [03 §7](03-data-model.md), [04 §4,§5](04-roles-and-permissions.md) |
 | CI + test harness | Vitest (unit/integration), Playwright scaffold, **pgTAP/SQL** RLS tests; `reservation-testing` tenant/user factories, RLS harness, fake Resend; `env.ts` Zod boot validation. | [01 §1,§8](01-architecture.md), [02 §3](02-reservation-core.md) |
 | **Vertical slice** | login → `provisionTenant` → create a course → list courses, all under RLS, all through `withRoute`, with unit + RLS + one e2e test. | [00 §5](00-overview.md) |
 
@@ -119,7 +119,7 @@ identity** and the **transactional email** the funnel needs.
   participant/guardian/enrollment field sets via `buildFormDescriptor`, validated by the shared
   `buildZodSchema`, and persisted via `splitValues` (spine columns + `custom` jsonb) — no hardcoded field lists
   ([07 §5,§7](07-registration-and-enrollment.md)). The portal surface (`portal`) follows.
-- **Guardian↔Participant** model: `core.guardianships`, the claim/link flows on approval and *Přidat dítě*
+- **Guardian↔Participant** model: `core.participant_accounts`, the claim/link flows on approval and *Přidat dítě*
   ([04 §7](04-roles-and-permissions.md), [05 §3](05-auth.md)).
 - **Magic‑link portal auth** + OAuth/OTP + safe‑links ([05 §2c–§2f](05-auth.md)); the `/auth/callback` outside
   `[locale]`.
@@ -284,7 +284,7 @@ second so the migration playbook is proven once.
 
 Every phase ships only when **all** of the following hold for its deliverables:
 
-- [ ] **RLS**: every new table default‑deny with `is_member_of()`/`guardian_can_act()` policies; a **pgTAP** test
+- [ ] **RLS**: every new table default‑deny with `is_member_of()`/`can_act_for_participant()` policies; a **pgTAP** test
       proves both allow and deny ([03 §7](03-data-model.md), [04 §4](04-roles-and-permissions.md)).
 - [ ] **Routes**: every endpoint is a `withRoute(...)` with the right `audience`/`minRole`/`can`/`plugin`; no
       raw handler; errors map to the standard codes ([12 §1.2](12-api-surface.md)).

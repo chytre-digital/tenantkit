@@ -3,8 +3,8 @@
 > How an actor **proves who it is**, before [04](04-roles-and-permissions.md) decides what it may do. Identity
 > is **Supabase Auth (GoTrue)**; the brief mandates **username/password + OAuth + magic link** for sign-in,
 > **OTP** as a family fallback, and **login-less safe-links** for one-shot actions (the omluvenka self-service
-> needs links that work with no account). Table/column names (`core.memberships`, `core.guardianships`,
-> `app_role`, `guardian_relation`, `public.applications.safe_link_token`) are authoritative from
+> needs links that work with no account). Table/column names (`core.memberships`, `core.participant_accounts`,
+> `app_role`, `participant_relation`, `public.applications.safe_link_token`) are authoritative from
 > [03](03-data-model.md).
 
 ## 1. Identity provider & method matrix
@@ -37,7 +37,7 @@ audience, else the callback rejects with `403`.
 State lives in exactly three places — make this explicit per flow:
 (a) **GoTrue** (`auth.users`, identities, refresh tokens), (b) **cookies** via `@supabase/ssr`
 (`sb-‹ref›-auth-token` access+refresh; `active_tenant_id`), (c) **app tables** (`core.memberships`,
-`core.guardianships`, `public.applications`). The in-memory access token lives only for the lifetime of a
+`core.participant_accounts`, `public.applications`). The in-memory access token lives only for the lifetime of a
 server request ([01 §4–5](01-architecture.md)).
 
 ### (a) Staff email/password login + active-tenant cookie
@@ -46,7 +46,7 @@ server request ([01 §4–5](01-architecture.md)).
 1. POST /api/auth/sign-in        { email, password }   (rateLimit: 'password', §6)
 2. supabase.auth.signInWithPassword()                 → GoTrue verifies bcrypt
       ↳ on success @supabase/ssr writes sb-‹ref›-auth-token cookie (access JWT + refresh)
-3. requireClaims() loads memberships[] (+ guardianships[])  [02 §7]
+3. requireClaims() loads memberships[] (+ participantAccounts[])  [02 §7]
 4. resolve active tenant:
       - if memberships.length === 0  → redirect to /onboarding (provisionTenant, [02 §8])
       - else set active_tenant_id = cookie∩memberships, default first  [02 §7]
@@ -92,7 +92,7 @@ chicken-and-egg of "insert a membership in a tenant you are not yet a member of"
       ↳ GoTrue mints a single-use magic-link token (TTL 60m), Resend delivers it [10]
 3. guardian clicks → GET /auth/callback?code=…  (route OUTSIDE the [locale] segment, §7)
       ↳ supabase.auth.exchangeCodeForSession(code) → @supabase/ssr writes the session cookie
-4. requireClaims() → guardianships[]; if empty → "no participants yet" claim screen (§3)
+4. requireClaims() → participantAccounts[]; if empty → "no participants yet" claim screen (§3)
 5. redirect to next (/portal).
 ```
 
@@ -106,12 +106,12 @@ The link is **single-use** (GoTrue invalidates on first exchange) and short-live
       options:{ redirectTo: '…/auth/callback?next=/portal' }})
 2. provider consent → back to /auth/callback?code=… → exchangeCodeForSession → cookie
 3. first-ever sign-in: requireClaims() bootstraps a core.profiles row (idempotent, [02 §7])
-4. guardianship resolution as in (c) step 4.
+4. participant-account resolution as in (c) step 4.
 ```
 
 OAuth identities are linked by verified email; a guardian who first used a magic link and later "Continue with
 Google" on the **same verified email** lands on the same `auth.users` row (GoTrue identity linking) — so they
-keep their guardianships. Apple's private-relay email is stored as-is and still matches by the relayed address.
+keep their participant accounts. Apple's private-relay email is stored as-is and still matches by the relayed address.
 
 ### (e) OTP fallback (6-digit code)
 
@@ -161,28 +161,28 @@ of the family's data. Token construction & entropy in §5.
 
 ## 3. Guardian ↔ Participant linking
 
-A magic-link/OAuth/registered guardian is **associated with participants** through `core.guardianships`
+A magic-link/OAuth/registered guardian is **associated with participants** through `core.participant_accounts`
 ([03 §3](03-data-model.md)); how that row is born:
 
 1. **On application approval** ([03 §5](03-data-model.md) → enrollment): staff approve a `public.applications`
    row carrying `guardian_email`. The approval use-case:
    - matches `guardian_email` to an existing `auth.users` (verified email) → if found, create
-     `core.guardianships(user_id, participant_id, relation='parent', is_primary=true)`;
-   - else send a **claim** invite (magic link to the portal). The guardianship is created **pending** against
+     `core.participant_accounts(user_id, participant_id, relation='parent', is_primary=true)`;
+   - else send a **claim** invite (magic link to the portal). The participant account is created **pending** against
      the email and resolved to the `user_id` when they first authenticate.
 2. **Claiming flow**: an unauthenticated guardian who follows the post-approval email signs in (magic link /
-   OAuth / password). On first `requireClaims()`, any pending guardianship matching their verified email is
+   OAuth / password). On first `requireClaims()`, any pending participant account matching their verified email is
    bound to their `user_id` (idempotent, like the profile bootstrap in [02 §7](02-reservation-core.md)).
 3. **Adult self-managing participant**: at enrollment the applicant marks "I am the participant" → the
-   participant row is created and a `core.guardianships(relation='self', is_primary=true)` link binds the adult
-   to themselves. `relation='self'` is a `guardian_relation` value ([03 §3](03-data-model.md)); it confers no
+   participant row is created and a `core.participant_accounts(relation='self', is_primary=true)` link binds the adult
+   to themselves. `relation='self'` is a `participant_relation` value ([03 §3](03-data-model.md)); it confers no
    extra power ([04 §7](04-roles-and-permissions.md)).
 4. **Adding another child**: an authenticated guardian uses *Přidat dítě* in the portal → creates a new
-   `public.participants` row in the tenant and a second `core.guardianships(user_id, participant_id,
+   `public.participants` row in the tenant and a second `core.participant_accounts(user_id, participant_id,
    relation='parent')`. The `unique (user_id, participant_id)` constraint ([03 §3](03-data-model.md)) prevents
    duplicate links; two guardians over one child are two rows (one `is_primary`).
 
-> Guardianship binding always keys on a **verified** email. An unverified address never auto-links — it stays
+> Participant-account binding always keys on a **verified** email. An unverified address never auto-links — it stays
 > pending until the address is proven by a magic-link/OTP click, closing the obvious account-takeover hole.
 
 ## 4. Account model — one user, two contexts
@@ -195,13 +195,13 @@ separate "family users" table; the distinction is which app rows reference the u
 interface AuthContext {
   userId: string; email: string | null; profile: ProfileClaims
   memberships:   Membership[]     // { tenantId, role }       — STAFF context
-  guardianships: Guardianship[]   // { participantId, relation } — FAMILY context
+  participantAccounts: ParticipantAccount[] // { participantId, relation } — FAMILY context
 }
 ```
 
-- `audience: 'staff'` requires `memberships` (in the resolved tenant) and ignores guardianships; `audience:
-  'family'` requires `guardianships` and ignores roles. A user with only one of the two is simply denied the
-  other surface (`403 NOT_A_MEMBER` / `403 NOT_A_GUARDIAN`, [04 §8](04-roles-and-permissions.md)).
+- `audience: 'staff'` requires `memberships` (in the resolved tenant) and ignores participant accounts; `audience:
+  'family'` requires `participantAccounts` and ignores roles. A user with only one of the two is simply denied the
+  other surface (`403 NOT_A_MEMBER` / `403 NOT_A_PARTICIPANT`, [04 §8](04-roles-and-permissions.md)).
 - The **same login** serves both surfaces; the *surface URL* (admin host vs `/portal`) and the route audience
   decide context — the user does not pick "log in as staff vs parent". This is exactly the `AuthContext`
   contract in [02 §4,§7](02-reservation-core.md).

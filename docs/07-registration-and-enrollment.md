@@ -14,7 +14,7 @@
   Public QR form (anon)                         Staff (admin console)
         │ submit                                       │ "Nový účastník"
         ▼                                              ▼
-  public.applications (pending) ── approve ──▶ public.participants (+ core.guardianships)
+  public.applications (pending) ── approve ──▶ public.participants (+ core.participant_accounts)
         │  reject                                      │
         ▼                                              ▼
    (notify, no enrollment)                      public.enrollments (active)
@@ -162,7 +162,7 @@ slot · source) · *Přijato* (submitted‑at) · *Stav* (badge) · *Akce*.
 `POST /api/applications/:id/approve` (`withRoute`: staff, `minRole: 'staff'`, `can: 'applications:decide'`) runs
 a single **`SECURITY DEFINER` RPC** so participant creation, enrollment, and the capacity check are atomic:
 
-1. **Resolve / create the guardian account** by `guardian_email` (dedupe, §6) → a `core.guardianships` link.
+1. **Resolve / create the guardian account** by `guardian_email` (dedupe, §6) → a `core.participant_accounts` link.
 2. **Resolve / create the participant** (`public.participants`) for the child under that guardian; copy
    `child_name`/`child_dob`; seed `participants.custom` from `applications.custom`.
 3. **Re‑check capacity atomically** for the (re‑assignable) target course/session: `select … for update` on the
@@ -224,10 +224,10 @@ upsertGuardianAndChild(email, guardianName, child):
   if guardian exists:
       ensure a participant for `child` under this guardian
         (match by full_name + date_of_birth; else create a NEW participant)
-      add a core.guardianships(user_id=guardian, participant_id=child, relation='parent') if absent
+      add a core.participant_accounts(user_id=guardian, participant_id=child, relation='parent') if absent
   else:
       provision a family account (passwordless; activated via magic-link/claim, doc 05)
-      create the participant, create the guardianship
+      create the participant, create the participant account
   return { guardianUserId, participantId }
 ```
 
@@ -237,7 +237,7 @@ Consequences:
   children" portal view), never a duplicate guardian.
 - A re‑submission for the **same child** (same name + DOB under the same guardian) reuses the participant — the
   active‑enrollment unique index then prevents a duplicate course enrollment (§4.1).
-- An **adult enrolling themselves** is modelled by a `self`‑relation guardianship ([03](03-data-model.md) §3).
+- An **adult enrolling themselves** is modelled by a `self`‑relation participant account ([03](03-data-model.md) §3).
 - The guardian account is only *provisioned*, not logged in, at approval; access is finished by the
   **magic‑link / claim** email ([05](05-auth.md)). Email is the join key precisely because the public form has
   no authenticated identity.

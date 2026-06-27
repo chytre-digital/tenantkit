@@ -33,7 +33,7 @@ Measured against the mockup in [`packages/kernel/`](../packages/kernel/):
 | **Storage** | (not core‑critical) | Shallow | Easy — `StorageProvider` (optional) |
 | **Data access** | `auth/require-claims.ts`, `tenancy/*`, `with-route.ts` | **Pervasive** — `supabase.from(...)`, `supabase.auth.getUser()` everywhere | **Medium** — `Database`/`AuthzStore` ports |
 | **Identity / auth** | `auth/*`, `supabase/*`, the magic‑link/OTP/safe‑link flows (doc 05) | **Deep (semantics)** — GoTrue owns users, OAuth, tokens | **Hard** — `IdentityProvider` port + adapters |
-| **RLS on `auth.uid()`** | `db/index.ts` (`is_member_of`, `my_role`, `guardian_can_act`) | **Deepest — it's the security model** | **Medium** — `current_user_id()` GUC indirection |
+| **RLS on `auth.uid()`** | `db/index.ts` (`is_member_of`, `my_role`, `can_act_for_participant`) | **Deepest — it's the security model** | **Medium** — `current_user_id()` GUC indirection |
 | **Framework (Next.js/React)** | `with-route.ts`, `supabase/proxy.ts`, `cache()` | Deep — *separate axis*, not Supabase | Medium — `@reservation-core/next` binding |
 | **Realtime** | (optional) | Shallow | Easy — optional, skip in core |
 
@@ -82,7 +82,7 @@ How each adapter makes the identity available to RLS:
 | **In‑memory / test** | The fake `Database` sets the actor on its `ScopedDb`; predicates are evaluated by the same logic. |
 
 One function, every Postgres. The ~40 RLS policies in `db/migrations/*` are unchanged — they already call
-`core.is_member_of()` / `core.guardian_can_act()`, which now call `current_user_id()`.
+`core.is_member_of()` / `core.can_act_for_participant()`, which now call `current_user_id()`.
 
 ## 4. Ports & adapters
 
@@ -107,7 +107,7 @@ The ports, in brief (full signatures in the code file):
 | `IdentityProvider` | who is the caller; password/OAuth/magic‑link/OTP flows; user provisioning | Supabase Auth | Auth.js (NextAuth), Lucia, custom GoTrue |
 | `SessionStore` | persist/refresh the session in cookies | Supabase SSR | Auth.js, iron‑session |
 | `Database` | `asUser(id)` (RLS‑scoped), `asAnon()`, `asService()` (bypass), `tx`, `rpc` | Supabase client | postgres.js, node‑postgres, Drizzle, Kysely |
-| `AuthzStore` | the few cross‑cutting reads core does itself (profile, memberships, guardianships, plugin activation, tier, provisioning) | over Supabase | over any `Database` |
+| `AuthzStore` | the few cross‑cutting reads core does itself (profile, memberships, participant accounts, plugin activation, tier, provisioning) | over Supabase | over any `Database` |
 | `EmailProvider` | `send(message) → ok\|skipped\|error`, never throws | Resend | SMTP/Nodemailer, SES, Postmark, console |
 | `PaymentProvider` | checkout (subscription + course), refund, `verifyWebhook → neutral event` | Stripe | GoPay, Comgate, Adyen, mock |
 | `StorageProvider` | put / signed URL / remove (optional) | Supabase Storage | S3, local FS |
@@ -118,7 +118,7 @@ The ports, in brief (full signatures in the code file):
 Tempting mistake: abstract *every table* behind a repository. That re‑implements an ORM badly and loses the
 ergonomics of the app's chosen data layer. Instead the `Database` port abstracts only **(a) identity‑scoped vs
 service‑role execution** and **(b) transactions/RPC**. Core itself touches the DB through a tiny `AuthzStore`
-(profile, memberships, guardianships, plugin activation, tier, `provisionTenant`). **Your app's own domain
+(profile, memberships, participant accounts, plugin activation, tier, `provisionTenant`). **Your app's own domain
 queries (courses, sessions, credits) use whatever you like** — the Supabase client, Drizzle, raw SQL — as long
 as they run on a `ScopedDb` so RLS sees the actor. Core supplies the schema + RLS + the `current_user_id()`
 contract; it does not dictate your query builder.

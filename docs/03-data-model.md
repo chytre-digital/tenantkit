@@ -16,22 +16,22 @@
 - **Money**: never stored loose — the `payments` plugin owns money; the app stores only references + minor‑unit
   integer snapshots for display.
 - **RLS**: enabled on **every** table; default deny. Predicates use `core.is_member_of()` /
-  `core.guardian_can_act()` (§7) — never inline membership subqueries (avoids recursion + drift).
+  `core.can_act_for_participant()` (§7) — never inline membership subqueries (avoids recursion + drift).
 
 ## 2. Entity‑relationship overview
 
 ```
                          core.tenants ──< core.memberships >── auth.users ──1:1── core.profiles
                               │  │                                  │
-            ┌─────────────────┘  └───────────────┐                 └──< core.guardianships >── public.participants
-            │                                     │                                                   │
-   public.courses ──< public.sessions            core.plugin_activations                              │
-        │   │              │                      core.plugin_settings                                 │
-        │   │              │                                                                           │
-        │   └──< public.course_tags               public.applications >───────────(approved)──────────┤
-        │   └──< core.field_definitions >── core.field_sets  ▼   (configurable forms, §4a)            │
-        │       (custom_field_definitions / course_field_assignments — SUPERSEDED, §4)                │
-        │                                          public.enrollments >──────────────────────────────┘
+            ┌─────────────────┘  └───────────────┐                 └──< core.participant_accounts >── public.participants
+            │                                     │                                                         │
+   public.courses ──< public.sessions            core.plugin_activations                                    │
+        │   │              │                      core.plugin_settings                                       │
+        │   │              │                                                                                 │
+        │   └──< public.course_tags               public.applications >───────────(approved)────────────────┤
+        │   └──< core.field_definitions >── core.field_sets  ▼   (configurable forms, §4a)                  │
+        │       (custom_field_definitions / course_field_assignments — SUPERSEDED, §4)                      │
+        │                                          public.enrollments >────────────────────────────────────┘
         │                                                │
         ├──< public.validity_windows                     ├──< public.attendance (per session×participant)
         │                                                │         │ (state = excused)
@@ -88,21 +88,21 @@ create unique index one_owner_per_tenant on core.memberships(tenant_id) where ro
 ```
 > Partial‑unique‑index trick (from Restaurio) enforces **exactly one owner per tenant**.
 
-### `core.guardianships` — family account ↔ participant
+### `core.participant_accounts` — family account ↔ participant
 ```sql
-create table core.guardianships (
+create table core.participant_accounts (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users(id) on delete cascade,  -- the guardian account
   participant_id uuid not null references public.participants(id) on delete cascade,
   tenant_id     uuid not null references core.tenants(id),  -- denormalized for RLS speed
-  relation      guardian_relation not null default 'parent', -- parent | guardian | self
+  relation      participant_relation not null default 'parent', -- parent | guardian | self
   is_primary    boolean not null default true,
   created_at timestamptz not null default now(),
   unique (user_id, participant_id)
 );
 ```
 > A `self`‑relation row models an **adult participant managing themselves**. This pair — `participants` +
-> `guardianships` — is the new identity modeling the legacy system lacked entirely.
+> `participant_accounts` — is the new identity modeling the legacy system lacked entirely.
 
 ### Plugin tables
 ```sql
@@ -397,7 +397,7 @@ create policy staff_write on public.courses for all
 
 -- 2) Family access to a participant's rows (guardian can act for their participants):
 create policy family_read on public.credits for select
-  using (core.guardian_can_act(participant_id));
+  using (core.can_act_for_participant(participant_id));
 
 -- 3) Public reads (catalogue, slot availability) for the anon role, gated by a flag:
 create policy public_catalogue on public.courses for select
@@ -410,7 +410,7 @@ Key rules (lessons baked in):
   `memberships` does **not** recurse (Restaurio hit exactly this "infinite recursion in policy" bug).
 - **`memberships` own policies are self‑row only** (`user_id = auth.uid()`); cross‑member admin reads go through
   `SECURITY DEFINER` RPCs or the service‑role client (re‑checking authorization in code).
-- **Family RLS** uses `core.guardian_can_act(participant_id)` = `exists(select 1 from core.guardianships g where
+- **Family RLS** uses `core.can_act_for_participant(participant_id)` = `exists(select 1 from core.participant_accounts g where
   g.participant_id = $1 and g.user_id = auth.uid())`, also `SECURITY DEFINER`.
 - **Atomic capacity**: enrolling / booking a makeup goes through a `SECURITY DEFINER` RPC that does
   `select … for update` on the target session's counted rows before inserting — preventing overbooking under
@@ -418,7 +418,7 @@ Key rules (lessons baked in):
 
 ## 8. Indexing (the hot paths)
 
-- `memberships(user_id)`, `memberships(tenant_id)`, `guardianships(user_id)`, `guardianships(participant_id)`.
+- `memberships(user_id)`, `memberships(tenant_id)`, `participant_accounts(user_id)`, `participant_accounts(participant_id)`.
 - `sessions(course_id, starts_at)`, `sessions(tenant_id, starts_at)` (calendar & availability).
 - `attendance(session_id)`, `attendance(participant_id)`.
 - `credits(participant_id) where status='active'` (portal balance), `credits(tenant_id, status)`.
@@ -447,7 +447,7 @@ The `payments` plugin's webhooks update `core.tenants.tier` (tenant subscription
 
 - **Consent** captured on the application (`gdpr_consent_at`) and surfaced in the participant record.
 - **Export**: `GET /api/portal/account/export` assembles a guardian's + participants' data (JSON).
-- **Erase**: account deletion cascades guardianships; participants with history are anonymized (name → "Smazáno",
+- **Erase**: account deletion cascades participant accounts; participants with history are anonymized (name → "Smazáno",
   keep aggregate attendance counts) rather than hard‑deleted where a tenant needs cohort stats — configurable.
 - **Retention**: applications rejected > N months and unredeemed expired credits are purged by a scheduled job.
 
