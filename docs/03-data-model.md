@@ -26,12 +26,12 @@
             ┌─────────────────┘  └───────────────┐                 └──< core.participant_accounts >── public.participants
             │                                     │                                                         │
    public.courses ──< public.sessions            core.plugin_activations                                    │
-        │   │              │                      core.plugin_settings                                       │
-        │   │              │                                                                                 │
+        │   │              │                      core.plugin_settings                                      │
+        │   │              │                                                                                │
         │   └──< public.course_tags               public.applications >───────────(approved)────────────────┤
         │   └──< core.field_definitions >── core.field_sets  ▼   (configurable forms, §4a)                  │
         │       (custom_field_definitions / course_field_assignments — SUPERSEDED, §4)                      │
-        │                                          public.enrollments >────────────────────────────────────┘
+        │                                          public.enrollments >─────────────────────────────────────┘
         │                                                │
         ├──< public.validity_windows                     ├──< public.attendance (per session×participant)
         │                                                │         │ (state = excused)
