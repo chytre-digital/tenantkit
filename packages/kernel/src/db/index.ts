@@ -82,6 +82,87 @@ create or replace function core.set_updated_at()
 $$;
 `
 
+/**
+ * GENERIC AUDIT TRAIL (any table) — three SQL building blocks an app applies once, then attaches the
+ * trigger per table it wants audited (attendance, enrollments, …). The dispute-resolution use case: a
+ * forensic, append-only "who changed what, from what to what, and when" record that survives the
+ * last-writer stamp being overwritten.
+ *
+ * THE load-bearing detail: an app that writes through a service-role connection has NO JWT, so
+ * `core.current_user_id()` is NULL inside the trigger — the actor cannot be learned from the request.
+ * It is instead PASSED EXPLICITLY by each write function via `core.set_audit_actor()`, which stows it in
+ * a transaction-local GUC the AFTER trigger reads. Transaction-local (`set_config(..., true)`) → visible
+ * to triggers in the same PostgREST transaction, isolated between concurrent requests.
+ */
+
+/** The append-only audit table. `source` distinguishes staff writes from the (future) public family portal. */
+export const AUDIT_LOG_SQL = /* sql */ `
+create table if not exists core.audit_log (
+  id            uuid primary key default gen_random_uuid(),
+  tenant_id     uuid references core.tenants(id) on delete cascade,   -- null for cross-tenant ops
+  actor_user_id uuid,                                                 -- from app.actor_id GUC; null if not set
+  action        text not null,                                        -- INSERT | UPDATE | DELETE
+  entity        text,                                                 -- the table name (TG_TABLE_NAME)
+  entity_id     uuid,
+  before        jsonb,
+  after         jsonb,
+  source        text,                                                 -- 'staff' | 'family-portal' | null
+  at            timestamptz not null default now()
+);
+create index if not exists audit_log_entity_idx on core.audit_log (entity, entity_id, at desc);
+create index if not exists audit_log_tenant_idx on core.audit_log (tenant_id, at desc);
+`
+
+/** Stash the actor + source for the rest of the transaction so the audit trigger can read them. */
+export const SET_AUDIT_ACTOR_SQL = /* sql */ `
+create or replace function core.set_audit_actor(p_actor uuid, p_source text default null)
+  returns void language sql as $$
+  select set_config('app.actor_id', coalesce(p_actor::text, ''), true),
+         set_config('app.audit_source', coalesce(p_source, ''), true);
+$$;
+`
+
+/**
+ * The ONE generic row trigger. Reads the actor/source GUCs, derives tenant_id/entity_id from the row's
+ * conventional `tenant_id`/`id` columns, and appends one audit_log row with before/after snapshots.
+ * SECURITY DEFINER so it can insert into core.audit_log regardless of the caller's role.
+ */
+export const AUDIT_ROW_TRIGGER_FN_SQL = /* sql */ `
+create or replace function core.audit_row()
+  returns trigger language plpgsql security definer set search_path = core as $$
+declare
+  v_actor  uuid := nullif(current_setting('app.actor_id', true), '')::uuid;
+  v_source text := nullif(current_setting('app.audit_source', true), '');
+begin
+  if (tg_op = 'DELETE') then
+    insert into core.audit_log (tenant_id, actor_user_id, action, entity, entity_id, before, after, source)
+    values (old.tenant_id, v_actor, tg_op, tg_table_name, old.id, to_jsonb(old), null, v_source);
+    return old;
+  elsif (tg_op = 'UPDATE') then
+    if old is not distinct from new then return new; end if;   -- skip no-op updates
+    insert into core.audit_log (tenant_id, actor_user_id, action, entity, entity_id, before, after, source)
+    values (new.tenant_id, v_actor, tg_op, tg_table_name, new.id, to_jsonb(old), to_jsonb(new), v_source);
+    return new;
+  else  -- INSERT
+    insert into core.audit_log (tenant_id, actor_user_id, action, entity, entity_id, before, after, source)
+    values (new.tenant_id, v_actor, tg_op, tg_table_name, new.id, null, to_jsonb(new), v_source);
+    return new;
+  end if;
+end $$;
+`
+
+/** Attach the generic trigger to one table — `audit_<table>` fires on every insert/update/delete. */
+export function attachAuditTriggerSql(table: string): string {
+  return /* sql */ `
+drop trigger if exists audit_${table} on core.${table};
+create trigger audit_${table} after insert or update or delete on core.${table}
+  for each row execute function core.audit_row();
+`
+}
+
+/** Everything the generic audit trail needs, in dependency order (table → setter → trigger fn). */
+export const AUDIT_SQL = [AUDIT_LOG_SQL, SET_AUDIT_ACTOR_SQL, AUDIT_ROW_TRIGGER_FN_SQL].join('\n')
+
 /** The atomic provisioning RPC behind `provisionTenant` (doc 02 §8). */
 export const CREATE_TENANT_WITH_OWNER_SQL = /* sql */ `
 create or replace function core.create_tenant_with_owner(p_name text, p_slug text, p_owner uuid)

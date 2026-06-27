@@ -235,6 +235,11 @@ export {
   SET_UPDATED_AT_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,
   CORE_FUNCTIONS_SQL,
+  AUDIT_LOG_SQL,
+  SET_AUDIT_ACTOR_SQL,
+  AUDIT_ROW_TRIGGER_FN_SQL,
+  attachAuditTriggerSql,
+  AUDIT_SQL,
 } from './db'
 
 // --- fields (the schema-driven custom-field system; module authored by a sibling agent) ---
