@@ -82,8 +82,8 @@ export {
   type AuthContext,
   type ProfileClaims,
   type Membership,
-  type Guardianship,
-  type GuardianRelation,
+  type ParticipantAccount,
+  type ParticipantRelation,
 } from './auth/resolve-claims'
 
 // --- tenancy ---
@@ -134,7 +134,7 @@ export {
   type RouteOptions,
   type RouteCtx,
   type Audience,
-  type GuardianContext,
+  type ParticipantContext,
 } from './server/with-route'
 export { resolveLocale } from './server/resolve-locale'
 
@@ -230,7 +230,6 @@ export {
 export {
   IS_MEMBER_OF_SQL,
   MY_ROLE_SQL,
-  GUARDIAN_CAN_ACT_SQL,
   ROLE_RANK_SQL,
   SET_UPDATED_AT_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,

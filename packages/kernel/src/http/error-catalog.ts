@@ -29,7 +29,7 @@ const CATALOG: Catalog = {
     // specialized HttpError codes raised at throw sites
     INVALID_JSON: 'Tělo požadavku není platný JSON.',
     NOT_A_MEMBER: 'Nejste členem tohoto studia.',
-    NOT_A_GUARDIAN: 'Tento účet nemá žádné svěřence.',
+    NOT_A_PARTICIPANT: 'Tento účet nemá žádné účastníky.',
     PLUGIN_NOT_ENABLED: 'Tato funkce není pro vaše studio zapnutá.',
     // DomainError codes (domain/errors.ts)
     UPGRADE_REQUIRED: 'Tato funkce vyžaduje vyšší tarif.',
@@ -56,7 +56,7 @@ const CATALOG: Catalog = {
     INTERNAL: 'Internal server error.',
     INVALID_JSON: 'Request body is not valid JSON.',
     NOT_A_MEMBER: 'You are not a member of this studio.',
-    NOT_A_GUARDIAN: 'This account has no participants.',
+    NOT_A_PARTICIPANT: 'This account has no participants.',
     PLUGIN_NOT_ENABLED: 'This feature is not enabled for your studio.',
     UPGRADE_REQUIRED: 'This feature requires a higher plan.',
     FEATURE_NOT_AVAILABLE: 'This feature is not available on your plan.',

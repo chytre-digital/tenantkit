@@ -1,6 +1,6 @@
 /**
  * `AuthzStore` port → Supabase. The few cross-cutting reads the kernel does itself (profile, memberships,
- * guardianships, plugin activation, tier, provisioning). Backed by the SERVICE-role client and keyed by the
+ * participant accounts, plugin activation, tier, provisioning). Backed by the SERVICE-role client and keyed by the
  * already-verified `userId` — reading a user's OWN rows by id is safe regardless of RLS, and sidesteps any
  * membership-policy recursion. Domain queries (courses, sessions, credits) are NOT here — apps run those on
  * the request-scoped `Database.user()` client so RLS applies.
@@ -34,10 +34,10 @@ export class SupabaseAuthzStore implements AuthzStore {
     return (data ?? []).map((m) => ({ tenantId: m.tenant_id, role: m.role }))
   }
 
-  async getGuardianships(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {
-    const { data } = await this.db.schema('core').from('guardianships')
+  async getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {
+    const { data } = await this.db.schema('core').from('participant_accounts')
       .select('participant_id, tenant_id, relation').eq('user_id', userId)
-    return (data ?? []).map((g) => ({ participantId: g.participant_id, tenantId: g.tenant_id, relation: g.relation }))
+    return (data ?? []).map((p) => ({ participantId: p.participant_id, tenantId: p.tenant_id, relation: p.relation }))
   }
 
   async getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null> {

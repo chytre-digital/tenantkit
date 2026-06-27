@@ -54,17 +54,6 @@ create or replace function core.my_role(p_tenant uuid)
 $$;
 `
 
-/** Family predicate: may this guardian act for the participant? SECURITY DEFINER (doc 04 §7). */
-export const GUARDIAN_CAN_ACT_SQL = /* sql */ `
-create or replace function core.guardian_can_act(p_participant uuid)
-  returns boolean language sql security definer stable as $$
-  select exists (
-    select 1 from core.guardianships g
-    where g.participant_id = p_participant and g.user_id = core.current_user_id()
-  )
-$$;
-`
-
 /** Total order on roles (must match rbac/roles.ts `roleRank`, doc 02 §9). */
 export const ROLE_RANK_SQL = /* sql */ `
 create or replace function core.role_rank(p_role text)
@@ -182,7 +171,6 @@ export const CORE_FUNCTIONS_SQL = [
   ROLE_RANK_SQL,
   IS_MEMBER_OF_SQL,
   MY_ROLE_SQL,
-  GUARDIAN_CAN_ACT_SQL,
   SET_UPDATED_AT_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,
 ].join('\n')
@@ -192,9 +180,9 @@ export const CORE_FUNCTIONS_SQL = [
  *
  * Two concepts, both "invited by email": a PARTICIPANT ACCOUNT (a user linked to a participant; base relation
  * 'self' — an adult/own participant managing their own enrollment) and a STAFF membership. There is deliberately
- * NO "guardian" here: "guardian" is an APP-LEVEL relation VALUE (e.g. a kid's account) — core stays
- * participant-generic. `core.participant_accounts` + `core.can_act_for_participant()` SUPERSEDE the legacy
- * guardian-named `core.guardianships` + `GUARDIAN_CAN_ACT_SQL` above.
+ * NO "guardian" here: "guardian" is only ever an APP-LEVEL relation VALUE (e.g. a kid's account) — core stays
+ * participant-generic. `core.participant_accounts` + `core.can_act_for_participant()` are the participant ↔ user
+ * link and its SECURITY DEFINER RLS predicate.
  *
  * The invitation token is the app-side claim; the identity-provider account + sign-in are the adapter's. So
  * `accept_invitation` takes the actor id AND the actor's VERIFIED email EXPLICITLY (a service-role connection
@@ -202,7 +190,7 @@ export const CORE_FUNCTIONS_SQL = [
  * resolves the user-by-email and the verified email from `auth.users`; a different adapter resolves them its way.
  */
 
-/** Generic participant-account link (supersedes core.guardianships). `relation` defaults to 'self'. */
+/** Generic participant-account link — a user who may act for a participant. `relation` defaults to 'self'. */
 export const PARTICIPANT_ACCOUNTS_SQL = /* sql */ `
 create table if not exists core.participant_accounts (
   id             uuid primary key default gen_random_uuid(),
@@ -222,7 +210,7 @@ create policy participant_accounts_self_read  on core.participant_accounts for s
 create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
 `
 
-/** May the caller act for this participant? SECURITY DEFINER RLS predicate (supersedes GUARDIAN_CAN_ACT_SQL). */
+/** May the caller act for this participant? SECURITY DEFINER RLS predicate (the participant-account gate). */
 export const CAN_ACT_FOR_PARTICIPANT_SQL = /* sql */ `
 create or replace function core.can_act_for_participant(p_participant uuid)
   returns boolean language sql security definer stable as $$

@@ -42,7 +42,7 @@ export type RedemptionMatch =
 
 /**
  * Does `credit` match `targetCourse` for `participant` (doc 08 §6 step 2)? Applies, in order:
- *   0. the credit belongs to the participant being booked (defensive; RLS/`guardian_can_act` is the real gate).
+ *   0. the credit belongs to the participant being booked (defensive; RLS/`can_act_for_participant` is the real gate).
  *   1. crossCourse === false → target.id must equal credit.sourceCourseId.
  *   2. ageMatchRequired → ageInMonths(participant) ∈ [target.ageMinMonths, target.ageMaxMonths].
  *   3. sameTagsRequired → target.tags ∩ credit.tags ≠ ∅.

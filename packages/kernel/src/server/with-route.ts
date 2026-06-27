@@ -16,7 +16,7 @@
  *   2. resolve locale (cookie/header)  → ctx.locale
  *   3. audience !== 'public' ?         → resolveClaims(req, runtime)                401 UNAUTHORIZED
  *   4. staff:  resolve tenantId, assertMember, resolve role                        403 NOT_A_MEMBER
- *      family: resolve GuardianContext                                            403 NOT_A_GUARDIAN
+ *      family: resolve ParticipantContext                                          403 NOT_A_PARTICIPANT
  *   5. minRole / can                   → roleAtLeast + can()                       403 FORBIDDEN
  *   6. plugin                          → assertPluginEnabled (enabled+entitled)    422 PLUGIN_NOT_ENABLED
  *   7. entitlements                    → checkEntitlements()           403 UPGRADE_REQUIRED / FEATURE_NOT_AVAILABLE
@@ -54,8 +54,8 @@ import { zodErrorMap } from '../i18n/zod-locale'
 
 export type Audience = 'public' | 'staff' | 'family'
 
-/** FAMILY identity: the participant ids this account may act for (doc 02 §4, doc 04 §7). */
-export interface GuardianContext {
+/** PARTICIPANT (family) identity: the participant ids this account may act for (doc 02 §4, doc 04 §7). */
+export interface ParticipantContext {
   userId: string
   participantIds: string[]
   canActFor(participantId: string): boolean
@@ -64,7 +64,7 @@ export interface GuardianContext {
 export interface RouteOptions<TArgs extends unknown[] = unknown[]> {
   /** The wired ports bag. REQUIRED — the app builds it once and pre-binds `route()` (docs/14). */
   runtime: CoreRuntime
-  /** Who may call this. 'public' = no auth; 'staff' = tenant member; 'family' = guardian/participant. */
+  /** Who may call this. 'public' = no auth; 'staff' = tenant member; 'family' = participant account. */
   audience?: Audience // default 'staff'
   /** How to find the tenant for staff routes. */
   tenantFrom?: TenantFrom<TArgs>
@@ -99,7 +99,7 @@ export interface RouteCtx<TBody = unknown, TQuery = unknown> {
   can: (perm: Permission) => boolean
   entitlements: EntitlementsService | null
   // family:
-  guardian: GuardianContext | null // when audience === 'family'
+  participant: ParticipantContext | null // when audience === 'family'
   // parsed inputs (typed via opts.body / opts.query):
   input: { body?: TBody; query?: TQuery }
 }
@@ -141,7 +141,7 @@ export function withRoute<TArgs extends unknown[]>(
         role: null,
         can: () => false,
         entitlements: null,
-        guardian: null,
+        participant: null,
         input: {},
       }
 
@@ -150,7 +150,7 @@ export function withRoute<TArgs extends unknown[]>(
         ctx.claims = await resolveClaims(req, runtime) // throws 401 UNAUTHORIZED if no session
       }
 
-      // 4. Tenant + role (staff) / guardian (family).
+      // 4. Tenant + role (staff) / participant (family).
       if (audience === 'staff') {
         await resolveStaffContext(ctx, opts, args)
       } else if (audience === 'family') {
@@ -237,17 +237,17 @@ async function resolveStaffContext<TArgs extends unknown[]>(
 
 function resolveFamilyContext(ctx: RouteCtx): void {
   const claims = ctx.claims!
-  if (claims.guardianships.length === 0) {
-    throw forbidden('NOT_A_GUARDIAN', 'This account has no participants') // doc 04 §8
+  if (claims.participantAccounts.length === 0) {
+    throw forbidden('NOT_A_PARTICIPANT', 'This account has no participants') // doc 04 §8
   }
-  const participantIds = claims.guardianships.map((g) => g.participantId)
+  const participantIds = claims.participantAccounts.map((p) => p.participantId)
   const set = new Set(participantIds)
-  ctx.guardian = {
+  ctx.participant = {
     userId: claims.userId,
     participantIds,
     canActFor: (id) => set.has(id),
   }
-  // Family routes never take minRole/can — scope IS the guardianship (doc 04 §7); RLS enforces the same.
+  // Family routes never take minRole/can — scope IS the participant link (doc 04 §7); RLS enforces the same.
 }
 
 function enforceAuthorization<TArgs extends unknown[]>(ctx: RouteCtx, opts: RouteOptions<TArgs>): void {

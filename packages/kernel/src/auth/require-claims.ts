@@ -11,6 +11,6 @@ export {
   type AuthContext,
   type ProfileClaims,
   type Membership,
-  type Guardianship,
-  type GuardianRelation,
+  type ParticipantAccount,
+  type ParticipantRelation,
 } from './resolve-claims'

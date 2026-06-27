@@ -43,7 +43,7 @@ export interface IdentityProvider {
 
   signOut(req: Request): Promise<void>
 
-  /** Admin-side user provisioning (staff invite accept, guardian claim) — service-level, re-checks authz in code. */
+  /** Admin-side user provisioning (staff invite accept, participant-account claim) — service-level, re-checks authz in code. */
   createUser(input: { email: string; password?: string }): Promise<AuthUser>
 }
 
@@ -109,7 +109,7 @@ export interface Database {
 export interface AuthzStore {
   ensureProfile(userId: string, email: string | null): Promise<ProfileRow>
   getMemberships(userId: string): Promise<Array<{ tenantId: string; role: string }>>
-  getGuardianships(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>>
+  getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>>
   getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null>
   getTenantTier(tenantId: string): Promise<string>
   provisionTenant(input: { name: string; slug: string; ownerId: string }): Promise<{ tenantId: string }>

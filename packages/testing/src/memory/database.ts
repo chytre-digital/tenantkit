@@ -88,8 +88,8 @@ export class MemoryScopedDb implements ScopedDb {
         return this.store.tenants as unknown as Array<Record<string, unknown>>
       case 'memberships':
         return this.store.memberships as unknown as Array<Record<string, unknown>>
-      case 'guardianships':
-        return this.store.guardianships as unknown as Array<Record<string, unknown>>
+      case 'participant_accounts':
+        return this.store.participantAccounts as unknown as Array<Record<string, unknown>>
       case 'plugin_activations':
         return this.store.pluginActivations as unknown as Array<Record<string, unknown>>
       default:

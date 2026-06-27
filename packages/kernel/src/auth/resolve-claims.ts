@@ -1,12 +1,15 @@
 /**
  * Realizes docs/02-reservation-core.md §7 and docs/05-auth.md §4 — `resolveClaims()` + `AuthContext`.
  *
- * Resolves the authenticated subject into the two-context `AuthContext`: STAFF (`memberships`) AND FAMILY
- * (`guardianships`) — one account can be both; the route's `audience` decides which is required (doc 04 §1).
+ * Resolves the authenticated subject into the two-context `AuthContext`: STAFF (`memberships`) AND the
+ * PARTICIPANT side (`participantAccounts`) — one account can be both; the route's `audience` decides which is
+ * required (doc 04 §1). A participant account links a user to a participant they may act for; its `relation` is a
+ * value — `'self'` for an adult / own participant managing their own enrollment, or an app value (e.g. a kid's
+ * `'guardian'`/`'parent'`). The framework stays participant-generic; "guardian" is only ever a relation VALUE.
  *
  * PORTS REFACTOR (docs/14 §7): this no longer imports Supabase. It reads identity through
  * `runtime.identity.getCurrentUser(req)` and the three cross-cutting reads through `runtime.authz`
- * (`ensureProfile` / `getMemberships` / `getGuardianships`). The adapter decides HOW those rows are fetched.
+ * (`ensureProfile` / `getMemberships` / `getParticipantAccounts`). The adapter decides HOW those rows are fetched.
  *
  * Behaviors lifted from main-panel's `requireClaims`, generalized:
  *   • MEMOIZED PER REQUEST — a `WeakMap<Request, Promise<AuthContext>>` gives one DB round-trip per request no
@@ -16,8 +19,8 @@
  *     authenticated hit (the adapter guards the select → insert-if-missing, or uses a DB trigger).
  *   • Throws `unauthorized()` when there is no session.
  *
- * Table names are authoritative from doc 03 §3 (`core.profiles`, `core.memberships`, `core.guardianships`) —
- * but they now live INSIDE the adapter's `AuthzStore`, not here.
+ * Table names are authoritative from doc 03 §3 (`core.profiles`, `core.memberships`, `core.participant_accounts`)
+ * — but they now live INSIDE the adapter's `AuthzStore`, not here.
  */
 import type { CoreRuntime } from '../ports'
 import { unauthorized } from '../http/errors'
@@ -36,13 +39,14 @@ export interface Membership {
   role: AppRole
 }
 
-export type GuardianRelation = 'parent' | 'guardian' | 'self'
+/** A participant-account link's relation: 'self' (adult / own participant) or an app value (e.g. 'guardian', 'parent'). */
+export type ParticipantRelation = 'parent' | 'guardian' | 'self'
 
-/** FAMILY side — one row per participant the account may act for. */
-export interface Guardianship {
+/** PARTICIPANT side — one row per participant the account may act for. */
+export interface ParticipantAccount {
   participantId: string
   tenantId: string
-  relation: GuardianRelation
+  relation: ParticipantRelation
 }
 
 export interface AuthContext {
@@ -50,7 +54,7 @@ export interface AuthContext {
   email: string | null
   profile: ProfileClaims
   memberships: Membership[] // STAFF
-  guardianships: Guardianship[] // FAMILY
+  participantAccounts: ParticipantAccount[] // PARTICIPANT (family) side
 }
 
 /**
@@ -80,9 +84,9 @@ async function loadClaims(req: Request, runtime: CoreRuntime): Promise<AuthConte
   const profile = await runtime.authz.ensureProfile(user.id, user.email ?? null)
 
   // Both context shapes are loaded in parallel; the route's audience picks which one it requires.
-  const [memberships, guardianships] = await Promise.all([
+  const [memberships, participantAccounts] = await Promise.all([
     runtime.authz.getMemberships(user.id),
-    runtime.authz.getGuardianships(user.id),
+    runtime.authz.getParticipantAccounts(user.id),
   ])
 
   return {
@@ -95,10 +99,10 @@ async function loadClaims(req: Request, runtime: CoreRuntime): Promise<AuthConte
       phone: profile.phone,
     },
     memberships: memberships.map((m) => ({ tenantId: m.tenantId, role: m.role as AppRole })),
-    guardianships: guardianships.map((g) => ({
-      participantId: g.participantId,
-      tenantId: g.tenantId,
-      relation: g.relation as GuardianRelation,
+    participantAccounts: participantAccounts.map((p) => ({
+      participantId: p.participantId,
+      tenantId: p.tenantId,
+      relation: p.relation as ParticipantRelation,
     })),
   }
 }

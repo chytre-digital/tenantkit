@@ -4,14 +4,14 @@
  * The shared, Map-backed substrate every in-memory port reads/writes. It is ONE store so the three ports stay
  * consistent: the `Database` simulates RLS by filtering these same `core.*` tables that `AuthzStore` reads and
  * `IdentityProvider` provisions into. The tables mirror docs/03-data-model.md §3 (`core.profiles`,
- * `core.memberships`, `core.guardianships`, `core.tenants`, `core.plugin_activations`) plus an `authUsers`
+ * `core.memberships`, `core.participant_accounts`, `core.tenants`, `core.plugin_activations`) plus an `authUsers`
  * table standing in for GoTrue's user store.
  *
  * "Simulated RLS" here is the same logic docs/14 §3.1 promises the in-memory adapter runs: the store tracks a
  * CURRENT ACTOR (the resolved `core.current_user_id()`), and the predicate helpers below evaluate
- * `is_member_of` / `guardian_can_act` against the membership/guardianship rows — exactly the SECURITY DEFINER
- * functions from db/index.ts, in TypeScript. Tenant-scoped reads through the `user` handle are filtered by
- * these predicates; the `service` handle bypasses them (mirroring the service-role RLS bypass).
+ * `is_member_of` / `can_act_for_participant` against the membership/participant-account rows — exactly the
+ * SECURITY DEFINER functions from db/index.ts, in TypeScript. Tenant-scoped reads through the `user` handle are
+ * filtered by these predicates; the `service` handle bypasses them (mirroring the service-role RLS bypass).
  */
 
 /** A GoTrue-equivalent user row (the IdentityProvider's table). Passwords are stored in clear — TESTS ONLY. */
@@ -37,7 +37,8 @@ export interface MembershipRecord {
   role: string
 }
 
-export interface GuardianshipRecord {
+/** A participant-account link row — a user who may act for a participant. `relation` is 'self' or an app value. */
+export interface ParticipantAccountRecord {
   userId: string
   participantId: string
   tenantId: string
@@ -65,7 +66,7 @@ export interface MemorySeed {
   authUsers?: AuthUserRow[]
   profiles?: ProfileRecord[]
   memberships?: MembershipRecord[]
-  guardianships?: GuardianshipRecord[]
+  participantAccounts?: ParticipantAccountRecord[]
   tenants?: TenantRecord[]
   pluginActivations?: PluginActivationRecord[]
   /** Arbitrary extra tables, keyed by table name → rows (each row MUST carry `tenant_id` for RLS to apply). */
@@ -92,7 +93,7 @@ export class MemoryStore {
   authUsers: AuthUserRow[]
   profiles: ProfileRecord[]
   memberships: MembershipRecord[]
-  guardianships: GuardianshipRecord[]
+  participantAccounts: ParticipantAccountRecord[]
   tenants: TenantRecord[]
   pluginActivations: PluginActivationRecord[]
   /** Arbitrary domain tables, name → rows. */
@@ -104,7 +105,7 @@ export class MemoryStore {
     this.authUsers = [...(seed.authUsers ?? [])]
     this.profiles = [...(seed.profiles ?? [])]
     this.memberships = [...(seed.memberships ?? [])]
-    this.guardianships = [...(seed.guardianships ?? [])]
+    this.participantAccounts = [...(seed.participantAccounts ?? [])]
     this.tenants = [...(seed.tenants ?? [])]
     this.pluginActivations = [...(seed.pluginActivations ?? [])]
     this.generic = new Map(
@@ -130,7 +131,7 @@ export class MemoryStore {
     return rows
   }
 
-  // ── Simulated RLS predicates — the TS twins of core.is_member_of / core.guardian_can_act (db/index.ts) ──
+  // ── Simulated RLS predicates — the TS twins of core.is_member_of / core.can_act_for_participant (db/index.ts) ──
 
   /** `core.role_rank()` — MUST match rbac/roles.ts + ROLE_RANK_SQL (db/index.ts). */
   roleRank(role: string): number {
@@ -157,19 +158,19 @@ export class MemoryStore {
     )
   }
 
-  /** `core.guardian_can_act(participant)` — does this user guard that participant? */
-  guardianCanAct(userId: string | null, participantId: string): boolean {
+  /** `core.can_act_for_participant(participant)` — may this user act for that participant? */
+  canActForParticipant(userId: string | null, participantId: string): boolean {
     if (!userId) return false
-    return this.guardianships.some((g) => g.userId === userId && g.participantId === participantId)
+    return this.participantAccounts.some((p) => p.userId === userId && p.participantId === participantId)
   }
 
-  /** The set of tenant ids the actor can see at all (any membership or guardianship). Drives row filtering. */
+  /** The set of tenant ids the actor can see at all (any membership or participant account). Drives row filtering. */
   visibleTenantIds(actor: Actor): Set<string> {
     if (actor.role === 'service') return new Set(this.tenants.map((t) => t.id)) // bypass
     if (actor.role === 'anon' || actor.userId === null) return new Set()
     const ids = new Set<string>()
     for (const m of this.memberships) if (m.userId === actor.userId) ids.add(m.tenantId)
-    for (const g of this.guardianships) if (g.userId === actor.userId) ids.add(g.tenantId)
+    for (const p of this.participantAccounts) if (p.userId === actor.userId) ids.add(p.tenantId)
     return ids
   }
 }

@@ -3,7 +3,7 @@
  * (ports/index.ts §2) over the shared `MemoryStore`'s seeded `core.*` tables.
  *
  * These are the handful of cross-cutting reads the kernel does itself (doc 14 §4.1) — profile bootstrap,
- * memberships, guardianships, plugin activation, tier, `provisionTenant`. The Supabase adapter backs these with
+ * memberships, participant accounts, plugin activation, tier, `provisionTenant`. The Supabase adapter backs these with
  * service-role reads keyed by the verified `userId`; here they're plain scans over the seeded arrays. Keeping
  * the SAME store the `Database` filters means a membership seeded for RLS is the SAME row `getMemberships`
  * returns — no drift between "what authz sees" and "what RLS enforces".
@@ -30,12 +30,12 @@ export class MemoryAuthzStore implements AuthzStore {
       .map((m) => ({ tenantId: m.tenantId, role: m.role }))
   }
 
-  async getGuardianships(
+  async getParticipantAccounts(
     userId: string,
   ): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {
-    return this.store.guardianships
-      .filter((g) => g.userId === userId)
-      .map((g) => ({ participantId: g.participantId, tenantId: g.tenantId, relation: g.relation }))
+    return this.store.participantAccounts
+      .filter((p) => p.userId === userId)
+      .map((p) => ({ participantId: p.participantId, tenantId: p.tenantId, relation: p.relation }))
   }
 
   async getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null> {
