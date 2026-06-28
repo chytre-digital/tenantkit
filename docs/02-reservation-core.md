@@ -131,7 +131,7 @@ export interface RouteCtx {
   can: (perm: Permission) => boolean
   entitlements: EntitlementsService | null
   // family:
-  guardian: ParticipantContext | null     // when audience === 'family'
+  participant: ParticipantContext | null  // when audience === 'family'
   // parsed inputs (typed via opts.body / opts.query):
   input: { body?: unknown; query?: unknown }
 }

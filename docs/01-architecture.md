@@ -126,7 +126,7 @@ proxy.ts (middleware)
   ▼
 Route handler = withRoute({ minRole:'coach', tenantFrom:'param', plugin:undefined }, handler)
   │  1. createServerClient()                          (RLS as user)
-  │  2. requireClaims()  → AuthContext {userId, memberships[], guardianOf[]}   (cached per request)
+  │  2. requireClaims()  → AuthContext {userId, memberships[], participantAccounts[]}   (cached per request)
   │  3. resolve tenantId (route param ‖ active_tenant_id cookie) and assert membership   → 403 if not
   │  4. resolve role for that tenant; roleAtLeast(role, minRole)                          → 403 if low
   │  5. (if opts.plugin) assert tenant has plugin enabled & entitled                      → 422 plugin_not_enabled
