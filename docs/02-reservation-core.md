@@ -87,10 +87,18 @@ the reference runtime is [`packages/adapter-supabase/`](https://github.com/chytr
 > three role‑scoped handles `db.user()` / `db.anon()` / `db.service()` — **not** `supabase`. Everything below is
 > phrased against these ports; concrete vendors are adapter packages selected in `core.config.ts`.
 
-## 4. `withRoute` — the one way to write an endpoint
+## 4. `withRoute` / `withSlugRoute` — the one way to write an endpoint
 
 The generalization of both apps' `withAuthRoute`. A single wrapper that resolves identity, tenant, role,
-plugin‑gating, and validation, then hands a typed context to the handler. **Every** API route uses it.
+plugin‑gating, and validation, then hands a typed context to the handler. **Every** API route uses one of the
+two wrappers — they share the pipeline (steps 5–10 live once in the internal `route-pipeline.ts`) and differ
+only in **how the tenant is resolved**:
+
+- **`withSlugRoute`** (§4a, recommended for new apps) — the tenant is **named in the URL** (`/projects/[slug]/…`,
+  Makerkit‑style, [17 §2](17-makerkit-comparison.md)); no ambient state, no cookie.
+- **`withRoute`** (below, **LEGACY**) — the ambient chain `tenantFrom` (param/host/cookie/fn) ending in the
+  validated `active_tenant_id` cookie. Kept fully supported for cookie/host (subdomain / custom‑domain)
+  tenancy — the Restaurio/NaLekci inheritance.
 
 ```ts
 // @tenantkit/kernel
@@ -187,6 +195,73 @@ export const POST = withRoute(
 
 Preset bundles (like the legacy `instructorBillingRouteOptions`) are just objects:
 `export const ownerOnly = { minRole: 'owner' } satisfies RouteOptions`.
+
+## 4a. `withSlugRoute` — URL‑addressable tenancy (recommended)
+
+The slug‑in‑path wrapper ([17 §2](17-makerkit-comparison.md) — the Makerkit‑style stateless selector). The
+tenant is resolved from a `[slug]` route param through the `AuthzStore.getTenantBySlug(slug)` port — for
+**every** audience, `public` included (a public enrollment form is still a *tenant's* form). The active‑tenant
+cookie is never read or written; switching tenants is navigation.
+
+```ts
+// @tenantkit/kernel
+export function withSlugRoute<TArgs extends unknown[]>(
+  opts: SlugRouteOptions,
+  handler: (ctx: SlugRouteCtx, ...args: TArgs) => Promise<Response>
+): (...args: TArgs) => Promise<Response>
+
+export interface SlugRouteOptions extends CommonRouteOptions {   // minRole/can/plugin/entitlements/rateLimit/body/query
+  audience?: 'public' | 'staff' | 'family'   // default 'staff'; tenant resolved from the slug for ALL audiences
+  slugParam?: string                          // route-param key, default 'slug' (a `[slug]` segment)
+}
+
+export interface SlugRouteCtx extends RouteCtx {
+  tenant: TenantSummary                       // { id, slug, name, tier } — ALWAYS resolved (unknown slug → 404)
+  tenantId: string                            // = tenant.id (compat with tenantId-keyed code)
+}
+```
+
+**Deltas vs. the legacy pipeline** (steps 6–10 identical):
+
+| Step | `withSlugRoute` |
+|---|---|
+| 3. identity | staff/family: `resolveClaims` → `401` **before** the slug lookup (an anonymous probe learns nothing about slugs). |
+| 4. tenant | `await params` (Next 15/16 pass a Promise) → `slugParam` → `getTenantBySlug` → **`404 NOT_FOUND`** when unknown. Missing param key = programming error → 500. |
+| 4b. staff | `assertMember` → `403 NOT_A_MEMBER`; **entitlements built from `tenant.tier`** — no `getTenantTier` round‑trip. |
+| 4b. family | `ParticipantContext` **scoped to the resolved tenant** → `403 NOT_A_PARTICIPANT` when no link *here*. |
+| 4b. public | no identity; `ctx.tenant` still set — so `plugin` gating works on public slug routes too. |
+
+Guard order: **`401 → 404 → 403`**. A signed‑in non‑member gets `403` on a real slug, `404` on a bogus one.
+
+**Canonical usage** (Termínář's `/api/projects/[slug]/courses`):
+
+```ts
+export const POST = route(                    // route = pre-bound withSlugRoute (apps/*/src/server/route.ts)
+  { audience: 'staff', minRole: 'coach' },
+  async (ctx, req: Request) => {
+    const courseId = await saveCourse(ctx.tenant.id, ctx.claims!.userId, null, await parse(req, ctx.locale))
+    return jsonOk({ courseId }, { status: 201 })
+  },
+)
+```
+
+**The page‑layer companion — `resolveTenantWorkspace`** (Makerkit's `loadTeamWorkspace` analog). A gated
+layout asks one question — *who is this user inside the tenant this URL names?* — and maps the answer to its
+own navigation. The kernel returns a discriminated result, never redirects (framework‑agnostic):
+
+```ts
+const r = await resolveTenantWorkspace(runtime, slug, { minRole: 'staff' })
+// { ok: true, workspace: { user, tenant, role } }
+// | { ok: false, reason: 'unauthenticated' | 'not_found' | 'not_a_member' | 'forbidden' }
+if (!r.ok) {
+  if (r.reason === 'unauthenticated') redirect('/login')
+  if (r.reason === 'not_found') notFound()
+  redirect('/projects')                       // not_a_member / forbidden → back to the picker
+}
+```
+
+Deliberately lean (`identity.getCurrentUser` + `getTenantBySlug` + `getMemberships` — no profile bootstrap,
+no participant accounts); memoization is the app's concern (React `cache()` in an RSC world).
 
 ## 5. HTTP & error model
 

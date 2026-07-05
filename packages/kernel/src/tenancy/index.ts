@@ -9,6 +9,11 @@
  * Resolution order (staff): explicit `param` → `host` (subdomain/custom domain) → `active_tenant_id` cookie.
  * `provisionTenant` wraps the `create_tenant_with_owner` SECURITY DEFINER RPC to dodge the RLS chicken-and-egg
  * of "insert a tenant you're not yet a member of" (doc 02 §8).
+ *
+ * LEGACY NOTE (docs/17 §2): the ambient chain above — and especially its cookie tail — is the Restaurio
+ * inheritance, kept for cookie/host (subdomain / custom-domain) tenancy. Slug-in-URL apps should address the
+ * tenant in the path and use `withSlugRoute` / `resolveTenantWorkspace` (see ./workspace.ts), which never
+ * touch the active-tenant cookie.
  */
 import { forbidden } from '../http/errors'
 import { readCookie } from '../i18n/locale'
@@ -50,7 +55,11 @@ export function tenancyConfig(): TenancyConfig {
   return CONFIG
 }
 
-/** Where to find the tenant for a route (doc 02 §4). The function form lets a route compute it from args. */
+/**
+ * Where to find the tenant for a route (doc 02 §4). The function form lets a route compute it from args.
+ * `'cookie'` is the LEGACY mode (ambient active-tenant state) — slug-in-URL apps should use `withSlugRoute`,
+ * which reads the `[slug]` route param instead and never consults a cookie.
+ */
 export type TenantFrom<TArgs extends unknown[] = unknown[]> =
   | 'cookie'
   | 'param'
@@ -99,7 +108,11 @@ function tenantIdFromHost(req: Request): string | null {
   return req.headers.get('x-tenant-id') ?? null
 }
 
-/** Read the active-tenant cookie (raw) off the Request. Validate against memberships before trusting. */
+/**
+ * Read the active-tenant cookie (raw) off the Request. Validate against memberships before trusting.
+ * @deprecated LEGACY — part of the ambient active-tenant chain (cookie/host tenancy). Fully supported for
+ * Restaurio/NaLekci-style apps; slug-in-URL apps use `withSlugRoute` and never read this cookie.
+ */
 export function readActiveTenantCookie(req: Request): string | null {
   return readCookie(req.headers.get('cookie'), ACTIVE_TENANT_COOKIE)
 }
@@ -108,6 +121,8 @@ export function readActiveTenantCookie(req: Request): string | null {
  * Append the active-tenant `Set-Cookie` to a Response (framework-agnostic). httpOnly + SameSite=Lax (doc 05 §2a).
  * The caller MUST have validated the tenant is in the user's memberships first; `POST /api/auth/switch-tenant`
  * does exactly that.
+ * @deprecated LEGACY — part of the ambient active-tenant chain (cookie/host tenancy). Fully supported for
+ * Restaurio/NaLekci-style apps; slug-in-URL apps switch tenants by navigating, not by setting a cookie.
  */
 export function setActiveTenantCookie(res: Response, tenantId: string): void {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
@@ -121,6 +136,8 @@ export function setActiveTenantCookie(res: Response, tenantId: string): void {
  * Resolve the active tenant for a staff request: the cookie value if it's a real membership, else the first
  * membership (a cookie pointing at a tenant the user left silently falls back — doc 05 §2a). Null when the
  * user has no memberships at all (→ onboarding).
+ * @deprecated LEGACY — the ambient fallback `withRoute` ends its chain with. Fully supported for
+ * Restaurio/NaLekci-style apps; slug-in-URL apps use `withSlugRoute`, where the path is the selector.
  */
 export function resolveActiveTenant(claims: AuthContext, req: Request): string | null {
   const cookieValue = readActiveTenantCookie(req)

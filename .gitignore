@@ -12,3 +12,6 @@ coverage/
 
 # npm publish auth helper (token via ${NPM_TOKEN}); recreated by CI
 .npmrc
+
+# local-link tarballs (pnpm pack) consumed by ../terminar overrides until publish
+*.tgz

@@ -1,19 +1,36 @@
 {
   "name": "@deverjak/tenantkit-next",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Next.js binding for the @deverjak/tenantkit-kernel: the cookie adapter and the session-refresh middleware glue. The framework-specific seam.",
   "license": "MIT",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "files": ["dist"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public",
-    "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json --outDir dist --declaration"
   },
-  "peerDependencies": { "@deverjak/tenantkit-kernel": "workspace:*", "next": ">=15" },
-  "devDependencies": { "typescript": "^5.9.3", "next": "^16.2.9", "react": "^19.2.7", "@types/react": "^19.2.0" }
+  "peerDependencies": {
+    "@deverjak/tenantkit-kernel": "workspace:*",
+    "next": ">=15"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "@types/react": "^19.2.0"
+  }
 }

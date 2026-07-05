@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-testing",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The in-memory adapter + port conformance suite for the tenantkit kernel — the 'is it really decoupled?' honesty check (docs/14 §6.4). Vendor-free CoreRuntime for fast tests + reusable vitest suites every adapter must pass.",
   "license": "MIT",
   "type": "module",
@@ -8,12 +8,20 @@
     ".": "./src/index.ts",
     "./conformance": "./src/conformance.ts"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public",
     "exports": {
-      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-      "./conformance": { "types": "./dist/conformance.d.ts", "import": "./dist/conformance.js" }
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./conformance": {
+        "types": "./dist/conformance.d.ts",
+        "import": "./dist/conformance.js"
+      }
     }
   },
   "scripts": {

@@ -112,9 +112,17 @@ export interface AuthzStore {
   getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>>
   getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null>
   getTenantTier(tenantId: string): Promise<string>
+  /**
+   * Resolve a tenant by its URL slug (`withSlugRoute` step 4 / `resolveTenantWorkspace`). Null = unknown
+   * slug → the wrapper 404s. A transport/config failure (missing grant, unexposed schema) must THROW, not
+   * return null — a misconfigured adapter must not masquerade as "tenant not found".
+   */
+  getTenantBySlug(slug: string): Promise<TenantSummary | null>
   provisionTenant(input: { name: string; slug: string; ownerId: string }): Promise<{ tenantId: string }>
 }
 export interface ProfileRow { fullName: string | null; locale: string | null; avatarUrl: string | null; phone: string | null }
+/** The tenant row the slug resolver returns — id + the display/plan fields `withSlugRoute` puts on ctx.tenant. */
+export interface TenantSummary { id: string; slug: string; name: string; tier: string }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) EmailProvider — transactional send (replaces the direct Resend import)

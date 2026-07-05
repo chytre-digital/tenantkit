@@ -21,7 +21,7 @@ recurse), and role rank is a numeric ladder. Where they genuinely diverge:
 | Second actor class | **First‑class** family / participant accounts (`core.participant_accounts`, relational auth). | None — only account members. (Customer‑facing data is just account‑owned rows.) |
 | Roles | Fixed enum `app_role` (staff<coach<admin<owner) + a data‑driven `resource:action:scope` permission map in **app code**. | `public.roles` + `public.role_permissions` + `app_permissions` enum — roles & grants live **in the database**, editable per app. |
 | Permission granularity | `scope ∈ {own, any}` baked into both `withRoute` and RLS. | `has_permission(user, account, permission)` flag checks; no built‑in `own/any` row‑scope. |
-| App‑edge gate | `withRoute({ audience, minRole, can })` — a typed route wrapper, vendor‑free. | Server components / actions + `requireUser` + permission helpers, Supabase‑coupled. |
+| App‑edge gate | `withSlugRoute({ audience, minRole, can })` (slug‑in‑path, recommended) + legacy `withRoute` (cookie/host chain) — typed route wrappers, vendor‑free. | Server components / actions + `requireUser` + permission helpers, Supabase‑coupled. |
 | Billing | A **plugin** (`payments.*` schema, entitlement‑gated). | **Core** (`subscriptions`, `orders`, `billing_customers` in `public`). |
 
 The one‑sentence summary: **Makerkit is a Supabase‑native, account‑centric SaaS starter where "personal" and
@@ -85,10 +85,18 @@ user is a member (via a `user_account_workspace` view / `team_account_workspace`
 renders for that `account_id`. Resolution is **explicit and URL‑addressable**; there's no ambient "active
 account" cookie — the path *is* the selector.
 
-### TenantKit — a resolution chain, then a cookie
+### TenantKit — both models: slug‑in‑path (`withSlugRoute`, recommended) or the legacy chain
 
-Staff tenant resolution is a fallback ladder (see [`tenancy/index.ts`](../packages/kernel/src/tenancy/index.ts),
-[04 §8](04-roles-and-permissions.md)):
+**Since kernel 0.5.0 TenantKit ships the Makerkit‑style selector natively.** `withSlugRoute`
+([02 §4a](02-reservation-core.md)) resolves the tenant from a `[slug]` route param via the
+`AuthzStore.getTenantBySlug` port — for **every** audience, `public` included — asserts membership
+(`401 → 404 → 403`), and never touches a cookie; `resolveTenantWorkspace` is the page‑layer companion
+(Makerkit's `loadTeamWorkspace` analog). Termínář runs on this (`/projects/[slug]/…`). Two deltas vs.
+Makerkit's loader: the tenant is resolved even for anonymous/public slug routes, and the family
+(participant‑account) audience is scoped to the resolved tenant.
+
+The **legacy** staff resolution is the fallback ladder (see
+[`tenancy/index.ts`](../packages/kernel/src/tenancy/index.ts), [04 §8](04-roles-and-permissions.md)):
 
 ```
 explicit param  →  host (subdomain ‹slug›.terminar.cz / custom domain via core.tenant_domains)  →  active_tenant_id cookie
@@ -101,9 +109,10 @@ explicit param  →  host (subdomain ‹slug›.terminar.cz / custom domain via 
   suspenders.
 - Switching tenants is `POST /api/auth/switch-tenant`, which validates membership then sets the httpOnly cookie.
 
-So Makerkit prefers a **stateless, URL‑addressable** selector (slug in path) and TenantKit prefers a **multi‑source
-chain ending in a validated cookie** — because TenantKit also targets **subdomain and custom‑domain** tenancy
-(`core.tenant_domains`), where the host *is* the tenant and there's no slug in the path to read.
+So Makerkit has one **stateless, URL‑addressable** selector (slug in path); TenantKit **defaults new apps to the
+same model** (`withSlugRoute`) and keeps the **multi‑source chain ending in a validated cookie** as the legacy
+path (`withRoute`, deprecated‑but‑supported) — because TenantKit also targets **subdomain and custom‑domain**
+tenancy (`core.tenant_domains`), where the host *is* the tenant and there's no slug in the path to read.
 
 ### The decoupled identity seam (TenantKit‑only)
 

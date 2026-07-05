@@ -44,28 +44,32 @@ so the whole framework reads top-to-bottom.
 
 ## Write your first route
 
-Every API route is a `withRoute(opts, handler)`. The wrapper resolves identity, tenant, role, plugin-gating,
-and validation, then hands a typed `RouteCtx` to your handler:
+Every API route is a wrapped handler. **`withSlugRoute`** (recommended, doc 02 §4a) resolves the tenant from
+the URL — a `[slug]` route segment — then identity, role, plugin-gating, and validation, and hands a typed
+`SlugRouteCtx` to your handler:
 
 ```ts
-// apps/terminar/app/api/sessions/[id]/attendance/route.ts
-import { withRoute, jsonOk } from '@tenantkit/kernel'
+// apps/terminar/app/api/projects/[slug]/sessions/[id]/attendance/route.ts
+import { withSlugRoute, jsonOk } from '@tenantkit/kernel'
 import { RecordAttendanceSchema } from '@/domain/attendance'
 
-export const POST = withRoute(
-  { audience: 'staff', minRole: 'coach', tenantFrom: 'cookie',
-    can: 'attendance:record', body: RecordAttendanceSchema },
-  async (ctx, _req, { params }: { params: { id: string } }) => {
+export const POST = withSlugRoute(
+  { audience: 'staff', minRole: 'coach', can: 'attendance:record', body: RecordAttendanceSchema },
+  async (ctx, _req, { params }: { params: Promise<{ slug: string; id: string }> }) => {
     const result = await recordAttendance(ctx, {                  // an application use-case
-      sessionId: params.id, marks: ctx.input.body!.marks,
+      sessionId: (await params).id, marks: ctx.input.body!.marks,
     })
     return jsonOk({ attendance: result })
   },
 )
 ```
 
-That single declaration enforces: caller has a session, is a member of the resolved tenant, is at least
-`coach`, holds `attendance:record`, and sent a body matching the schema — each a clean early-return error.
-RLS is the second gate underneath (doc 04).
+That single declaration enforces: caller has a session (401), the slug names a real tenant (404 —
+`ctx.tenant` is its `{ id, slug, name, tier }` row), the caller is a member of it (403), at least `coach`,
+holds `attendance:record`, and sent a body matching the schema — each a clean early-return error. RLS is the
+second gate underneath (doc 04). Page layouts use the companion `resolveTenantWorkspace(runtime, slug, { minRole })`.
+
+The legacy **`withRoute`** (`tenantFrom: 'cookie' | 'host' | 'param' | fn` ending in the validated
+`active_tenant_id` cookie) remains fully supported for cookie/host — subdomain / custom-domain — tenancy.
 
 See doc 02 for the full pipeline and every subsystem.

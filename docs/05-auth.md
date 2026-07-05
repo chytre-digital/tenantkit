@@ -61,6 +61,15 @@ server request ([01 §4–5](01-architecture.md)).
 - No `restaurant_id`-on-profile legacy shortcut: the active tenant is **cookie-derived only**
   (the deprecated `serverSignIn` profile-column fallback in `main-panel` is dropped).
 
+> **THE RESOLUTION FORK ([02 §4a](02-reservation-core.md), [17 §2](17-makerkit-comparison.md)).** Steps 4–5
+> above — the cookie tail of the `param → host → cookie` chain — are the **LEGACY** model, kept for
+> cookie/host (subdomain / custom‑domain) tenancy (Restaurio/NaLekci‑style). Slug‑in‑URL apps
+> (Termínář's `/projects/[slug]/…`) use **`withSlugRoute`** / **`resolveTenantWorkspace`** instead: the path
+> *is* the selector, resolved per request via `AuthzStore.getTenantBySlug` and asserted against memberships
+> (`401 → 404 → 403`). No `active_tenant_id` cookie exists at all there — "switching tenants" is navigating
+> to another slug, and step 4's no‑membership case redirects to the tenant picker instead of consulting a
+> cookie. `POST /api/auth/switch-tenant` has no equivalent and isn't needed.
+
 ### (b) Staff invite → accept (invite creates the membership)
 
 ```

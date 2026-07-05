@@ -26,6 +26,7 @@ export type {
   ScopedDb,
   AuthzStore,
   ProfileRow,
+  TenantSummary,
   EmailProvider,
   EmailMessage,
   EmailSendResult,
@@ -100,6 +101,11 @@ export {
   type TenantFrom,
   type Promisable,
 } from './tenancy'
+export {
+  resolveTenantWorkspace,
+  type TenantWorkspace,
+  type WorkspaceResult,
+} from './tenancy/workspace'
 
 // --- rbac ---
 export { type AppRole, roleRank, roleAtLeast, ROLE_ORDER } from './rbac/roles'
@@ -128,7 +134,7 @@ export {
   type EntitlementsService,
 } from './entitlements'
 
-// --- server (withRoute) ---
+// --- server (withSlugRoute + legacy withRoute) ---
 export {
   withRoute,
   type RouteOptions,
@@ -136,6 +142,11 @@ export {
   type Audience,
   type ParticipantContext,
 } from './server/with-route'
+export {
+  withSlugRoute,
+  type SlugRouteOptions,
+  type SlugRouteCtx,
+} from './server/with-slug-route'
 export { resolveLocale } from './server/resolve-locale'
 
 // --- plugins ---

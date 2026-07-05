@@ -8,7 +8,7 @@
  * NOTE: core/public tables live in the `core`/`public` schemas. `core` must be added to Supabase's
  * "Exposed schemas" (Project → API) for `.schema('core')` to work — or wrap these in RPCs.
  */
-import type { AuthzStore, ProfileRow } from '@deverjak/tenantkit-kernel'
+import type { AuthzStore, ProfileRow, TenantSummary } from '@deverjak/tenantkit-kernel'
 import { adminClient } from './clients'
 
 export class SupabaseAuthzStore implements AuthzStore {
@@ -49,6 +49,14 @@ export class SupabaseAuthzStore implements AuthzStore {
   async getTenantTier(tenantId: string): Promise<string> {
     const { data } = await this.db.schema('core').from('tenants').select('tier').eq('id', tenantId).single()
     return data?.tier ?? 'free'
+  }
+
+  async getTenantBySlug(slug: string): Promise<TenantSummary | null> {
+    const { data, error } = await this.db.schema('core').from('tenants')
+      .select('id, slug, name, tier').eq('slug', slug).maybeSingle()
+    // Surface transport/config errors (missing grant, unexposed schema) — they must NOT masquerade as 404.
+    if (error) throw error
+    return data ? { id: data.id, slug: data.slug, name: data.name, tier: data.tier ?? 'free' } : null
   }
 
   async provisionTenant(input: { name: string; slug: string; ownerId: string }): Promise<{ tenantId: string }> {

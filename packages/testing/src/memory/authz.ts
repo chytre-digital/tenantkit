@@ -8,7 +8,7 @@
  * the SAME store the `Database` filters means a membership seeded for RLS is the SAME row `getMemberships`
  * returns — no drift between "what authz sees" and "what RLS enforces".
  */
-import type { AuthzStore, ProfileRow } from '@deverjak/tenantkit-kernel'
+import type { AuthzStore, ProfileRow, TenantSummary } from '@deverjak/tenantkit-kernel'
 import type { MemoryStore, ProfileRecord } from './store'
 
 export class MemoryAuthzStore implements AuthzStore {
@@ -47,6 +47,11 @@ export class MemoryAuthzStore implements AuthzStore {
 
   async getTenantTier(tenantId: string): Promise<string> {
     return this.store.tenants.find((t) => t.id === tenantId)?.tier ?? 'free'
+  }
+
+  async getTenantBySlug(slug: string): Promise<TenantSummary | null> {
+    const t = this.store.tenants.find((x) => x.slug === slug)
+    return t ? { id: t.id, slug: t.slug, name: t.name, tier: t.tier } : null
   }
 
   async provisionTenant(input: { name: string; slug: string; ownerId: string }): Promise<{ tenantId: string }> {

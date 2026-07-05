@@ -93,6 +93,13 @@ Every row in the catalogue declares an **audience** ([02 §2](02-reservation-cor
 > schema and the `jsonOk` payload. Safe‑link routes are `public` but additionally validate the opaque token
 > ([05 §2f](05-auth.md)) before acting.
 
+> **Slug‑scoped surfaces ([02 §4a](02-reservation-core.md)).** Routes mounted under a tenant slug
+> (`/api/projects/[slug]/…`) use `withSlugRoute`: the "Resolved by" column's tenant step becomes
+> `getTenantBySlug(slug)` for **every** audience — `public` slug routes included (`404 NOT_FOUND` on an
+> unknown slug precedes everything except the staff/family `401`). The `active_tenant_id` cookie plays no
+> part on these surfaces, and `plugin` gating works even on their `public` rows because the tenant is always
+> resolved.
+
 ### 1.6 Versioning
 
 v1 is **unversioned at the path** (`/api/...`): a single first‑party client (the Termínář app) ships with the

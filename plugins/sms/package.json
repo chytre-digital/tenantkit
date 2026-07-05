@@ -1,14 +1,23 @@
 {
   "name": "@deverjak/tenantkit-plugin-sms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reference SMS plugin for tenantkit, behind a swappable SmsProvider port (Twilio / SMSbrana). requiresTier: 'pro'. Touches the system only through the five plugin seams.",
   "license": "MIT",
   "type": "module",
-  "exports": { ".": "./index.ts" },
-  "files": ["dist"],
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public",
-    "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

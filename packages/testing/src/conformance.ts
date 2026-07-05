@@ -58,6 +58,18 @@ export function runAuthzConformance(make: MakeHarness): void {
       const { tenantId } = await h.seedUserWithMembership({ email: 'd@x.cz' })
       expect(typeof (await h.runtime.authz.getTenantTier(tenantId))).toBe('string')
     })
+    it('resolves a tenant by slug (id/slug/name/tier — withSlugRoute step 4)', async () => {
+      const h = await make()
+      const { tenantId } = await h.seedUserWithMembership({ email: 's@x.cz', tenantSlug: 'aqua' })
+      const tenant = await h.runtime.authz.getTenantBySlug('aqua')
+      expect(tenant).toMatchObject({ id: tenantId, slug: 'aqua' })
+      expect(typeof tenant?.name).toBe('string')
+      expect(typeof tenant?.tier).toBe('string')
+    })
+    it('returns null for an unknown slug (the wrapper 404s; adapters must not throw here)', async () => {
+      const h = await make()
+      expect(await h.runtime.authz.getTenantBySlug('no-such-slug')).toBeNull()
+    })
   })
 }
 
