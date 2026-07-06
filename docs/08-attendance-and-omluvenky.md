@@ -142,6 +142,9 @@ body: { sessionId }
      age_max_months]`.
    - `sameTagsRequired` → target course `tags ∩ credit.tags ≠ ∅`.
    - `crossCourse === false` → target must be the **same course** as the source.
+   - **Validity covers the target's day** (`creditCoversSession`): the credit's expiry bounds the TARGET
+     lesson's calendar day (studio timezone, inclusive) — "platí do 5. 8." books lessons through 5. 8.,
+     never a lesson on 6. 8., even when the booking itself happens while the credit is still valid.
 3. **Capacity** (atomic): `select count(*) … for update` on active `makeups` + `enrollments` for that session
    vs `effectiveCapacity(session)`; reject `422 SESSION_FULL` if full. (This row‑lock is what prevents two
    guardians grabbing the last seat — the generalized `main-panel` overbooking guard.)
@@ -208,8 +211,9 @@ shows outstanding credit liability ("147 active omluvenky, 12 expiring this mont
 | Excused then corrected to present | Auto‑issued, **unredeemed** credit is cancelled; redeemed credit stays (warn staff). |
 | Two guardians book the last makeup seat | `select … for update` serializes; loser gets `SESSION_FULL`. |
 | Credit expires while a makeup is booked | Irrelevant — expiry is checked at *redeem*, not after; a booked makeup stands. |
+| Redeem into a session AFTER the credit's expiry day | Rejected (`credit_expires_before_session`) — validity bounds the target lesson's day (`creditCoversSession`), not just the booking moment. |
 | Redeem into the *same* session that was excused | Allowed only if it's a different occurrence; the source session is in the past by definition. |
-| Participant has multiple active credits | Portal spends the **soonest‑expiring** redeemable credit first (FIFO by expiry). |
+| Participant has multiple active credits | Portal spends the **soonest‑expiring** credit that COVERS the target session's day first (FIFO by expiry). |
 | Tenant disables the `omluvenky` feature mid‑season | Existing credits remain redeemable; new excuses stop minting. (Feature flag, not data deletion.) |
 | Self‑excuse spam | Rate‑limited; and self‑excuse only mints a credit if policy allows, same as staff. |
 
@@ -278,6 +282,15 @@ member, `computeExpiry(policy, course, now, windows, tokens, timeZone)` returns 
 token, and `resolveCreditExpiry(coursePolicy, tenantDefault, …)` is the one‑function mirror of the SQL ladder
 (reservation‑core 0.3.0). UI: expired tokens are hidden from the settings/course dropdowns (except a current
 selection, labelled "vypršel"), the default token is marked "(výchozí)".
+
+**Target‑day coverage (added 2026‑07, reference `db/migrations/0008_omluvenky_makeup_target_coverage.sql`):**
+a credit's expiry bounds the TARGET lesson's Prague calendar day, inclusive — "platí do 5. 8." books lessons
+through 5. 8. and never a lesson on 6. 8. `book_makeup`'s FIFO pick requires
+`(v_starts at tz)::date <= (expires_at at tz)::date` on top of the live `expires_at >= now()` gate (FIFO =
+soonest‑expiring credit that COVERS the target); a valid‑but‑short credit raises the distinct
+`credit_expires_before_session` instead of `no_credit`. Day‑level so a ttl credit stamped 5.8. 18:30 still
+books the 5.8. 21:00 lesson, matching the displayed date. TS mirror `creditCoversSession` (reservation‑core
+0.3.0); the portal additionally hides non‑covered slots per participant (§13 dual enforcement).
 
 **Capacity rule (new since the original draft):** an enrollee who excused themselves frees their seat *for
 that one session*, so per target session

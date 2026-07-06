@@ -78,10 +78,33 @@ export function matchesRedemption(
 }
 
 /**
+ * Does the credit's validity COVER the target session's calendar day (doc 08 §6 step 2b / §14)? A credit
+ * "platí do 5. 8." books lessons THROUGH 5. 8. and never a lesson on 6. 8. — the expiry bounds the TARGET
+ * lesson's date, not just the booking moment (`isRedeemableNow` handles that). Compared at DAY level in the
+ * studio timezone (inclusive), so a ttl credit stamped 5.8. 18:30 still books the 5.8. 21:00 lesson —
+ * matching the displayed date. `expiresAt === null` covers everything. SQL mirror: the coverage clause in
+ * `book_makeup`'s FIFO pick.
+ */
+export function creditCoversSession(
+  credit: { expiresAt: Date | null },
+  sessionStart: Date,
+  timeZone = 'Europe/Prague',
+): boolean {
+  if (credit.expiresAt === null) return true
+  return dayInZone(sessionStart, timeZone) <= dayInZone(credit.expiresAt, timeZone)
+}
+
+/** A Date's calendar day as 'YYYY-MM-DD' in an IANA zone (en-CA locale formats exactly that shape). */
+function dayInZone(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(d)
+}
+
+/**
  * FIFO selection (doc 08 §11): when a participant has multiple active credits, spend the SOONEST-EXPIRING
  * redeemable one first. Credits with no expiry (`none` mode) sort LAST (they can always be spent later).
- * The caller has already filtered to credits that are redeemable now and match the target; this only orders
- * them and returns the head. Returns null on an empty list.
+ * The caller has already filtered to credits that are redeemable now, match the target, and COVER the target
+ * session's day (`creditCoversSession`); this only orders them and returns the head. Returns null on an
+ * empty list.
  */
 export function selectCreditFIFO<T extends { expiresAt: Date | null }>(credits: T[]): T | null {
   if (credits.length === 0) return null

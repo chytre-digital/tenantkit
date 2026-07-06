@@ -22,6 +22,7 @@ import { decideIssue, type Course, type Excuse } from '../issue'
 import {
   matchesRedemption,
   selectCreditFIFO,
+  creditCoversSession,
   ageInMonths,
   type CreditForRedemption,
   type TargetCourse,
@@ -460,5 +461,46 @@ describe('decideIssue passes the token catalog through (doc 08 §14)', () => {
     const d = decideIssue(course, excuse, NOW, [], TOKENS)
     expect(d.issue).toBe(true)
     if (d.issue) expect(d.expiry.expiresAt?.toISOString()).toBe('2026-12-31T22:59:59.000Z')
+  })
+})
+
+// --- creditCoversSession — expiry bounds the TARGET lesson's day (doc 08 §6 / §14) --------------------------
+
+describe('creditCoversSession (expiry bounds the target lesson day, Prague, inclusive)', () => {
+  const expires = new Date('2026-08-05T16:30:00.000Z') // ttl credit stamped 5.8. 18:30 Prague (CEST)
+
+  it('lesson later the SAME Prague day is still covered (day-level, not timestamp)', () => {
+    const session = new Date('2026-08-05T19:00:00.000Z') // 5.8. 21:00 Prague — after the stamp instant
+    expect(creditCoversSession({ expiresAt: expires }, session)).toBe(true)
+  })
+
+  it('lesson the NEXT day is not covered', () => {
+    const session = new Date('2026-08-06T06:15:00.000Z') // 6.8. 08:15 Prague
+    expect(creditCoversSession({ expiresAt: expires }, session)).toBe(false)
+  })
+
+  it('never-expiring credit covers everything', () => {
+    expect(creditCoversSession({ expiresAt: null }, new Date('2030-01-01T00:00:00.000Z'))).toBe(true)
+  })
+
+  it('token end-of-day expiry covers a lesson across the DST fall-back on its own day', () => {
+    // 2026-10-25 is the CEST→CET switch; token EOD = 2026-10-25T22:59:59Z (23:59:59 CET)
+    const eod = new Date('2026-10-25T22:59:59.000Z')
+    const lateLesson = new Date('2026-10-25T22:30:00.000Z') // 23:30 CET, still Oct 25 in Prague
+    const nextDay = new Date('2026-10-25T23:30:00.000Z') // 00:30 CET Oct 26 in Prague
+    expect(creditCoversSession({ expiresAt: eod }, lateLesson)).toBe(true)
+    expect(creditCoversSession({ expiresAt: eod }, nextDay)).toBe(false)
+  })
+
+  it('filter → FIFO composition: the soonest-expiring COVERING credit is spent', () => {
+    const session = new Date('2026-08-10T09:00:00.000Z')
+    const credits = [
+      { id: 'tight', expiresAt: new Date('2026-08-05T21:59:59.000Z') }, // does not reach 10.8.
+      { id: 'covers-soon', expiresAt: new Date('2026-08-31T21:59:59.000Z') },
+      { id: 'covers-late', expiresAt: new Date('2026-12-31T22:59:59.000Z') },
+      { id: 'never', expiresAt: null },
+    ]
+    const picked = selectCreditFIFO(credits.filter((c) => creditCoversSession(c, session)))
+    expect(picked?.id).toBe('covers-soon')
   })
 })
