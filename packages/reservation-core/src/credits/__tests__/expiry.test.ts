@@ -12,7 +12,9 @@ import { describe, it, expect } from 'vitest'
 import {
   computeExpiry,
   isRedeemableNow,
+  resolveCreditExpiry,
   type CourseForExpiry,
+  type NamedExpiryToken,
   type ValidityWindow,
   type CreditForRedeemCheck,
 } from '../expiry'
@@ -335,5 +337,128 @@ describe('selectCreditFIFO (doc 08 §11 — spend soonest-expiring first)', () =
 
   it('empty list → null', () => {
     expect(selectCreditFIFO([])).toBeNull()
+  })
+})
+
+// --- named token mode + the shipped resolution ladder (doc 08 §14) --------------------------------------------
+
+const TOKENS: NamedExpiryToken[] = [
+  { id: 'tok-a', name: 'Token A', validUntil: '2026-12-31' },
+  { id: 'tok-b', name: 'Token B', validUntil: '2027-06-30' },
+  { id: 'tok-past', name: 'Loni', validUntil: '2025-12-31' },
+]
+
+describe("computeExpiry mode 'token' (doc 08 §14)", () => {
+  it('winter date → inclusive end-of-day Europe/Prague (23:59:59 CET = 22:59:59Z)', () => {
+    const r = computeExpiry({ mode: 'token', tokenId: 'tok-a' }, courseWithSessions([]), NOW, [], TOKENS)
+    expect(r.expiresAt?.toISOString()).toBe('2026-12-31T22:59:59.000Z')
+    expect(r.validWindowIds).toEqual([])
+    expect(r.unresolvedTokenId).toBeUndefined()
+  })
+
+  it('summer date (DST) → 23:59:59 CEST = 21:59:59Z', () => {
+    const r = computeExpiry({ mode: 'token', tokenId: 'tok-b' }, courseWithSessions([]), NOW, [], TOKENS)
+    expect(r.expiresAt?.toISOString()).toBe('2027-06-30T21:59:59.000Z')
+  })
+
+  it('inclusive boundary: issue AT the end-of-day instant still resolves; 1s past → unresolved', () => {
+    const eod = new Date('2026-12-31T22:59:59.000Z')
+    const atEod = computeExpiry({ mode: 'token', tokenId: 'tok-a' }, courseWithSessions([]), eod, [], TOKENS)
+    expect(atEod.expiresAt?.toISOString()).toBe('2026-12-31T22:59:59.000Z')
+    const past = computeExpiry(
+      { mode: 'token', tokenId: 'tok-a' },
+      courseWithSessions([]),
+      new Date(eod.getTime() + 1000),
+      [],
+      TOKENS,
+    )
+    expect(past.expiresAt).toBeNull()
+    expect(past.unresolvedTokenId).toBe('tok-a')
+  })
+
+  it('token missing from the catalog → unresolved (no dead credit stamped)', () => {
+    const r = computeExpiry({ mode: 'token', tokenId: 'tok-gone' }, courseWithSessions([]), NOW, [], TOKENS)
+    expect(r.expiresAt).toBeNull()
+    expect(r.unresolvedTokenId).toBe('tok-gone')
+  })
+
+  it('token already expired at issue → unresolved', () => {
+    const r = computeExpiry({ mode: 'token', tokenId: 'tok-past' }, courseWithSessions([]), NOW, [], TOKENS)
+    expect(r.unresolvedTokenId).toBe('tok-past')
+  })
+
+  it('a token-stamped credit is redeemable through the last second of its day (inclusive gate)', () => {
+    const stamped = computeExpiry({ mode: 'token', tokenId: 'tok-a' }, courseWithSessions([]), NOW, [], TOKENS)
+    const credit: CreditForRedeemCheck = {
+      status: 'active',
+      deletedAt: null,
+      expiresAt: stamped.expiresAt,
+      validWindowIds: [],
+    }
+    expect(isRedeemableNow(credit, new Date('2026-12-31T22:59:59.000Z'))).toBe(true)
+    expect(isRedeemableNow(credit, new Date('2026-12-31T23:00:00.000Z'))).toBe(false)
+  })
+})
+
+describe('resolveCreditExpiry — course override → tenant default → ttl-30 (SQL mirror, doc 08 §14)', () => {
+  const course = courseWithSessions([])
+
+  it('live course token wins outright', () => {
+    const r = resolveCreditExpiry({ mode: 'token', tokenId: 'tok-a' }, { mode: 'ttl', ttlDays: 14 }, course, NOW, [], TOKENS)
+    expect(r.expiresAt?.toISOString()).toBe('2026-12-31T22:59:59.000Z')
+  })
+
+  it('dead course token falls to the tenant default', () => {
+    const r = resolveCreditExpiry({ mode: 'token', tokenId: 'tok-past' }, { mode: 'ttl', ttlDays: 14 }, course, NOW, [], TOKENS)
+    expect(r.expiresAt?.toISOString()).toBe('2026-03-15T10:00:00.000Z')
+  })
+
+  it('null course policy uses the tenant default (token default resolves)', () => {
+    const r = resolveCreditExpiry(null, { mode: 'token', tokenId: 'tok-b' }, course, NOW, [], TOKENS)
+    expect(r.expiresAt?.toISOString()).toBe('2027-06-30T21:59:59.000Z')
+  })
+
+  it('dead tokens all the way down → ttl-30 final rung', () => {
+    const r = resolveCreditExpiry(
+      { mode: 'token', tokenId: 'tok-gone' },
+      { mode: 'token', tokenId: 'tok-past' },
+      course,
+      NOW,
+      [],
+      TOKENS,
+    )
+    expect(r.expiresAt?.toISOString()).toBe('2026-03-31T10:00:00.000Z')
+    expect(r.unresolvedTokenId).toBeUndefined()
+  })
+
+  it('both candidates null → ttl-30', () => {
+    const r = resolveCreditExpiry(null, null, course, NOW)
+    expect(r.expiresAt?.toISOString()).toBe('2026-03-31T10:00:00.000Z')
+  })
+
+  it("non-token modes never fall through (mode 'none' course override sticks)", () => {
+    const r = resolveCreditExpiry({ mode: 'none' }, { mode: 'token', tokenId: 'tok-a' }, course, NOW, [], TOKENS)
+    expect(r.expiresAt).toBeNull()
+    expect(r.unresolvedTokenId).toBeUndefined()
+  })
+})
+
+describe('decideIssue passes the token catalog through (doc 08 §14)', () => {
+  it('token policy on the course stamps the token end-of-day onto the decision', () => {
+    const course: Course = {
+      id: 'c1',
+      sessions: [],
+      tags: ['deti'],
+      excusePolicy: {
+        creditsEnabled: true,
+        expiry: { mode: 'token', tokenId: 'tok-a' },
+        selfExcuseDeadlineHours: 24,
+        redeemMatch: { ageMatchRequired: false, sameTagsRequired: false, crossCourse: true },
+      },
+    }
+    const excuse: Excuse = { sessionId: 's1', participantId: 'p1', enrollmentId: 'e1', enrollmentCreditCount: 0 }
+    const d = decideIssue(course, excuse, NOW, [], TOKENS)
+    expect(d.issue).toBe(true)
+    if (d.issue) expect(d.expiry.expiresAt?.toISOString()).toBe('2026-12-31T22:59:59.000Z')
   })
 })

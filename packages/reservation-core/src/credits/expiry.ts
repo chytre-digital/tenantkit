@@ -8,18 +8,31 @@
  * Pure: no I/O. These functions are the ones doc 08 §13 demands pass before any UI exists.
  */
 
-/** The expiry tagged union from doc 08 §5. A course picks exactly ONE mode. */
+/** The expiry tagged union from doc 08 §5 (+ the shipped `token` mode, doc 08 §14). A course picks ONE mode. */
 export type ExpiryPolicy =
   | { mode: 'none' }
   | { mode: 'ttl'; ttlDays: number }
   | { mode: 'course_end' }
   | { mode: 'windows'; windowIds: string[]; forwardWindows: number }
+  | { mode: 'token'; tokenId: string }
 
 /** A named validity window (public.validity_windows, doc 03 §4) — a date range. */
 export interface ValidityWindow {
   id: string
   startsOn: string // 'YYYY-MM-DD' (date-only)
   endsOn: string // 'YYYY-MM-DD'
+}
+
+/**
+ * A named fixed-date validity token from the tenant catalog (settings.excusalCredits.tokens, doc 08 §14).
+ * Unlike a window it has no start — only an INCLUSIVE end-of-day (`validUntil`, studio timezone). The policy
+ * references it by id and the date is resolved AT ISSUE TIME, so moving a token's date moves future mints of
+ * every course that pins it.
+ */
+export interface NamedExpiryToken {
+  id: string
+  name?: string
+  validUntil: string // 'YYYY-MM-DD' (date-only, inclusive)
 }
 
 /** Minimal course shape this module needs (its sessions, for `course_end`). */
@@ -31,10 +44,16 @@ export interface CourseForExpiry {
 
 /** The physical result `computeExpiry` writes onto the credit row (doc 08 §5 table). */
 export interface ComputedExpiry {
-  /** `ttl` / `course_end` collapse to a single timestamp; `none` / `windows` leave it null. */
+  /** `ttl` / `course_end` / `token` collapse to a single timestamp; `none` / `windows` leave it null. */
   expiresAt: Date | null
   /** `windows` mode: the ordered window ids the credit is redeemable within; else empty. */
   validWindowIds: string[]
+  /**
+   * `token` mode only: set when the referenced token is missing from the catalog or already expired at issue —
+   * the policy could not produce a real expiry. The caller decides the fallback (`resolveCreditExpiry` walks
+   * course override → tenant default → ttl-30, mirroring the SQL).
+   */
+  unresolvedTokenId?: string
 }
 
 /** A credit as far as redeemability evaluation cares (doc 08 §5 "Expiry evaluation"). */
@@ -50,23 +69,29 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 /**
  * Turn a course's `excuse_policy.expiry` into the credit's physical expiry columns (doc 08 §5).
  *
- * | mode        | produces                                            |
- * |-------------|-----------------------------------------------------|
- * | none        | expiresAt = null, validWindowIds = []               |
- * | ttl         | expiresAt = issuedAt + ttlDays                       |
- * | course_end  | expiresAt = last session's starts_at (null if none) |
- * | windows     | validWindowIds = [base, …+forwardWindows]           |
+ * | mode        | produces                                                      |
+ * |-------------|---------------------------------------------------------------|
+ * | none        | expiresAt = null, validWindowIds = []                         |
+ * | ttl         | expiresAt = issuedAt + ttlDays                                 |
+ * | course_end  | expiresAt = last session's starts_at (null if none)           |
+ * | windows     | validWindowIds = [base, …+forwardWindows]                     |
+ * | token       | expiresAt = the token's validUntil end-of-day (studio tz), or |
+ * |             | `unresolvedTokenId` when missing/expired — caller falls back  |
  *
- * @param policy  the chosen expiry mode
- * @param course  the SOURCE course (for `course_end`)
- * @param now     issue time (`issuedAt`)
- * @param windows the tenant's validity windows, used only by `windows` mode
+ * @param policy   the chosen expiry mode
+ * @param course   the SOURCE course (for `course_end`)
+ * @param now      issue time (`issuedAt`)
+ * @param windows  the tenant's validity windows, used only by `windows` mode
+ * @param tokens   the tenant's named token catalog, used only by `token` mode
+ * @param timeZone IANA zone the token's `validUntil` day ends in (the shipped SQL hardcodes Europe/Prague)
  */
 export function computeExpiry(
   policy: ExpiryPolicy,
   course: CourseForExpiry,
   now: Date,
   windows: ValidityWindow[] = [],
+  tokens: NamedExpiryToken[] = [],
+  timeZone = 'Europe/Prague',
 ): ComputedExpiry {
   switch (policy.mode) {
     case 'none':
@@ -89,7 +114,71 @@ export function computeExpiry(
       const ids = forwardWindowIds(windows, policy.windowIds, policy.forwardWindows)
       return { expiresAt: null, validWindowIds: ids }
     }
+
+    case 'token': {
+      // Named fixed-date token — resolve the id against the catalog at issue time (reference semantics).
+      const token = tokens.find((t) => t.id === policy.tokenId)
+      if (token !== undefined) {
+        const end = endOfDayInZone(token.validUntil, timeZone)
+        if (end.getTime() >= now.getTime()) return { expiresAt: end, validWindowIds: [] }
+      }
+      // Missing from the catalog or already expired at issue — signal instead of stamping a dead credit.
+      return { expiresAt: null, validWindowIds: [], unresolvedTokenId: policy.tokenId }
+    }
   }
+}
+
+/**
+ * The full shipped resolution ladder (doc 08 §14) — the ONE TS mirror of the SQL `core.compute_credit_expiry`:
+ * course override → tenant default → ttl-30. Null candidates are skipped; only a `token` candidate whose token
+ * is missing/expired falls through (every other mode resolves immediately). The final rung matches the SQL's
+ * hardcoded safe default.
+ */
+export function resolveCreditExpiry(
+  coursePolicy: ExpiryPolicy | null,
+  tenantDefault: ExpiryPolicy | null,
+  course: CourseForExpiry,
+  now: Date,
+  windows: ValidityWindow[] = [],
+  tokens: NamedExpiryToken[] = [],
+  timeZone = 'Europe/Prague',
+): ComputedExpiry {
+  for (const policy of [coursePolicy, tenantDefault]) {
+    if (policy === null) continue
+    const r = computeExpiry(policy, course, now, windows, tokens, timeZone)
+    if (r.unresolvedTokenId === undefined) return r
+  }
+  return computeExpiry({ mode: 'ttl', ttlDays: 30 }, course, now)
+}
+
+/**
+ * Inclusive end-of-day of a 'YYYY-MM-DD' calendar day in an IANA zone = local midnight of the NEXT day − 1s.
+ * Mirrors the SQL `((date + 1)::timestamp at time zone tz) - interval '1 second'`. Dependency-free two-pass
+ * Intl offset probe (the re-probe handles guesses that land across a DST shift; zones that skip midnight
+ * outright don't include Europe/Prague).
+ */
+function endOfDayInZone(dateOnly: string, timeZone: string): Date {
+  const [y, m, d] = dateOnly.split('-').map(Number)
+  const guess = Date.UTC(y!, m! - 1, d! + 1) // Date.UTC normalizes overflow (Dec 32 → Jan 1)
+  const offset = zoneOffsetMs(guess - zoneOffsetMs(guess, timeZone), timeZone)
+  return new Date(guess - offset - 1000)
+}
+
+/** The zone's UTC offset (ms, positive east of UTC) at a given UTC instant, via Intl.formatToParts. */
+function zoneOffsetMs(utcMs: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(utcMs))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  const asIfUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  return asIfUtc - utcMs
 }
 
 /** Latest `starts_at` among sessions, or null when there are none (the `course_end` 0-session case). */

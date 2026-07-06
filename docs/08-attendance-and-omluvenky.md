@@ -261,9 +261,23 @@ Name mapping doc → shipped:
 | outbox events (`credit.issued`/`credit.redeemed`) | not wired yet — issuance/cancellation happen inside the excusal/attendance RPCs' transaction |
 
 Shipped policy surface (subset of §12): tenant `settings.excusalCredits = { enabled: boolean, defaultExpiry:
-{ mode: 'none'|'ttl'|'course_end', ttlDays? } }` (default **enabled, ttl 30**) + per‑course override
-`courses.excuse_policy = {} | { expiry: {...} }`. No `windows` mode, no `redeemMatch` enforcement (credit
-`tags` are still snapshotted at issue for a later pass), no `maxCreditsPerEnrollment`.
+{ mode: 'none'|'ttl'|'course_end'|'token', ttlDays?, tokenId? }, tokens: [{ id, name, validUntil }] }`
+(default **enabled, ttl 30**) + per‑course override `courses.excuse_policy = {} | { expiry: {...} }`.
+No `windows` mode, no `redeemMatch` enforcement (credit `tags` are still snapshotted at issue for a later
+pass), no `maxCreditsPerEnrollment`.
+
+**Named tokens (added 2026‑07, reference `db/migrations/0007_omluvenky_token_expiry.sql`):** the shipped
+stand‑in for `windows` — a tenant catalog of named fixed‑end‑date tokens ("Token A platí do 31.12.2026").
+`{ mode: 'token', tokenId }` resolves the date from the catalog **at mint time** (reference semantics: moving
+a token's date moves future mints of every pinned course; issued credits keep their stamped `expires_at`).
+`validUntil` is **inclusive end‑of‑day Europe/Prague** (`((validUntil + 1)::timestamp at time zone
+'Europe/Prague') − 1s`), so it composes with the inclusive live gate. A token missing from the catalog or
+already expired at mint FALLS THROUGH the ladder **course override → tenant default → ttl‑30** (only dead
+`token` candidates fall; every other mode resolves immediately). TS mirror: `ExpiryPolicy` gains the `token`
+member, `computeExpiry(policy, course, now, windows, tokens, timeZone)` returns `unresolvedTokenId` for a dead
+token, and `resolveCreditExpiry(coursePolicy, tenantDefault, …)` is the one‑function mirror of the SQL ladder
+(reservation‑core 0.3.0). UI: expired tokens are hidden from the settings/course dropdowns (except a current
+selection, labelled "vypršel"), the default token is marked "(výchozí)".
 
 **Capacity rule (new since the original draft):** an enrollee who excused themselves frees their seat *for
 that one session*, so per target session

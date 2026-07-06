@@ -7,7 +7,13 @@
  * handlers; ours can't, because the rule does no I/O. If `issue`, the handler writes
  * `public.credits(status='active', tags, …)` with the computed expiry and links the excuse.
  */
-import { computeExpiry, type CourseForExpiry, type ExpiryPolicy, type ValidityWindow } from './expiry'
+import {
+  computeExpiry,
+  type CourseForExpiry,
+  type ExpiryPolicy,
+  type NamedExpiryToken,
+  type ValidityWindow,
+} from './expiry'
 
 /** The redeem-match rules a course imposes on credits sourced from it (doc 08 §6, §12). */
 export interface RedeemMatch {
@@ -69,12 +75,18 @@ export type IssueDecision =
  *   else                                                  → { issue: true, tags, expiry: computeExpiry(...) }
  *
  * @param windows the tenant's validity windows (only consulted by `expiry.mode === 'windows'`).
+ * @param tokens  the tenant's named token catalog (only consulted by `expiry.mode === 'token'`). A dead token
+ *                surfaces as `expiry.unresolvedTokenId` — shipped consumers resolve the course-vs-tenant
+ *                fallback with `resolveCreditExpiry` instead (doc 08 §14).
+ * @param timeZone IANA zone for `token` end-of-day math.
  */
 export function decideIssue(
   course: Course,
   excuse: Excuse,
   now: Date,
   windows: ValidityWindow[] = [],
+  tokens: NamedExpiryToken[] = [],
+  timeZone?: string,
 ): IssueDecision {
   const p = course.excusePolicy
 
@@ -90,6 +102,6 @@ export function decideIssue(
   return {
     issue: true,
     tags: [...course.tags],
-    expiry: computeExpiry(p.expiry, course, now, windows),
+    expiry: computeExpiry(p.expiry, course, now, windows, tokens, timeZone),
   }
 }
