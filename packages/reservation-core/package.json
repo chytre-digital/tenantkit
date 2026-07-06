@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-reservation-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Layer-2 reservation domain on @deverjak/tenantkit-kernel: pure courses/sessions/capacity logic, the enrollment rules, and the omluvenka (excuse -> makeup-credit -> redeem) engine. Vendor-free, no I/O.",
   "license": "MIT",
   "type": "module",

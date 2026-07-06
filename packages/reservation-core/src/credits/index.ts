@@ -6,3 +6,5 @@
 export * from './expiry'
 export * from './issue'
 export * from './redeem'
+export * from './capacity'
+export * from './summary'
