@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-reservation-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Layer-2 reservation domain on @deverjak/tenantkit-kernel: pure courses/sessions/capacity logic, the enrollment rules, and the omluvenka (excuse -> makeup-credit -> redeem) engine. Vendor-free, no I/O.",
   "license": "MIT",
   "type": "module",
@@ -10,14 +10,28 @@
     "./courses": "./src/courses/index.ts",
     "./enrollment": "./src/enrollment/index.ts"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public",
     "exports": {
-      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-      "./credits": { "types": "./dist/credits/index.d.ts", "import": "./dist/credits/index.js" },
-      "./courses": { "types": "./dist/courses/index.d.ts", "import": "./dist/courses/index.js" },
-      "./enrollment": { "types": "./dist/enrollment/index.d.ts", "import": "./dist/enrollment/index.js" }
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./credits": {
+        "types": "./dist/credits/index.d.ts",
+        "import": "./dist/credits/index.js"
+      },
+      "./courses": {
+        "types": "./dist/courses/index.d.ts",
+        "import": "./dist/courses/index.js"
+      },
+      "./enrollment": {
+        "types": "./dist/enrollment/index.d.ts",
+        "import": "./dist/enrollment/index.js"
+      }
     }
   },
   "scripts": {
