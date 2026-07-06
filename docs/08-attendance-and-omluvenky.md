@@ -238,3 +238,47 @@ inherits them and may override — so a studio sets policy once and rarely touch
 
 These are pure functions in `domain/` precisely so they're trivially testable — the legacy system's omluvenka
 bugs were all in side‑effecting handlers; ours can't be, because the rules don't do I/O.
+
+## 14. As shipped in terminar (2026‑07)
+
+The first production consumer (terminar) shipped a subset of this doc. **Reference SQL:
+`db/migrations/0006_omluvenky_shipped.sql`** (supersedes the illustrative 0003 for this subset); pure logic:
+`@deverjak/tenantkit-reservation-core/credits` v0.2.0 (`computeExpiry`, `isRedeemableNow`, `selectCreditFIFO`,
+`decideIssue`, `matchesRedemption` + the two additions below).
+
+Name mapping doc → shipped:
+
+| Doc concept | Shipped |
+|---|---|
+| `public.credits` | `core.excusal_credits` (text+CHECK statuses, no enums) |
+| `public.excuses` | — folded away: the `core.attendance` row with `state='excused'` IS the excuse |
+| `public.makeups` | `core.makeups` |
+| `redeem_credit_into_session(p_credit, p_session)` | `core.book_makeup(p_tenant, p_actor, p_participant, p_session)` — FIFO credit pick is server‑side |
+| guardian cancel | `core.cancel_makeup(p_tenant, p_actor, p_makeup)` — window = the tenant's `excuseDeadlineHours` (no separate `minCancellationNoticeHours`) |
+| `auth.uid()` / `can_act_for_participant` inside RPCs | explicit `p_actor` argument (the data client is the JWT‑less service role) |
+| `effective_capacity(session)` | course‑level `courses.capacity` only (no per‑session override) |
+| `credit_audit` | the generic `core.audit_log` row trigger on both new tables |
+| outbox events (`credit.issued`/`credit.redeemed`) | not wired yet — issuance/cancellation happen inside the excusal/attendance RPCs' transaction |
+
+Shipped policy surface (subset of §12): tenant `settings.excusalCredits = { enabled: boolean, defaultExpiry:
+{ mode: 'none'|'ttl'|'course_end', ttlDays? } }` (default **enabled, ttl 30**) + per‑course override
+`courses.excuse_policy = {} | { expiry: {...} }`. No `windows` mode, no `redeemMatch` enforcement (credit
+`tags` are still snapshotted at issue for a later pass), no `maxCreditsPerEnrollment`.
+
+**Capacity rule (new since the original draft):** an enrollee who excused themselves frees their seat *for
+that one session*, so per target session
+
+```
+free = course.capacity − activeEnrollments(course) + excusedEnrolled(session) − bookedMakeups(session)
+```
+
+pure mirror `freeMakeupCapacity(...)`; balance mirror `summarizeCredits(credits, now)` (both added in
+reservation‑core 0.2.0). The SQL RPC re‑checks the same formula under `SELECT … FOR UPDATE` on the course row
+(§13 dual enforcement). Expiry stays live‑evaluated and **inclusive** (`expires_at >= now()`), matching
+`isRedeemableNow`; the `expired` status is display‑only and never load‑bearing.
+
+Other shipped decisions: excusals mint on BOTH the portal self‑excuse and the staff attendance mark (real
+transitions into `excused` only, enrolled participants only); un‑excusing/correcting cancels a still‑`active`
+credit and never a `redeemed` one (§11 kept); one non‑cancelled credit per excused (session, participant) via a
+partial unique index; marking a make‑up guest `present` flips the booking to `attended` (other marks revert);
+removing a session from a course auto‑cancels its booked make‑ups and restores the credits.
