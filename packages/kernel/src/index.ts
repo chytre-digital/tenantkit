@@ -213,6 +213,7 @@ export {
   type EmailRenderInput,
   type TenantBranding,
 } from './email/define-email'
+export { type EmailComposer, type TransactionalEmailInput } from './email/composer'
 
 // --- i18n (vendor-free locale type; the next-intl factory `createI18n` lives in @tenantkit/i18n) ---
 export {

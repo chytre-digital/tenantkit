@@ -9,6 +9,8 @@
 import { Resend } from 'resend'
 import type { EmailMessage, EmailProvider, EmailSendResult } from '@deverjak/tenantkit-kernel'
 
+export { createTransactionalComposer, type TransactionalComposerOptions } from './transactional'
+
 export interface ResendEmailOptions {
   /** Default From, e.g. "Termínář <no-reply@terminar.cz>". A message's own `from` overrides it. */
   from: string

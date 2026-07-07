@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-email-resend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Resend EmailProvider adapter for the @deverjak/tenantkit-kernel ports. The transport the kernel's sendEmail() delegates to.",
   "license": "MIT",
   "type": "module",
