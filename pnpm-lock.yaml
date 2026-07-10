@@ -103,7 +103,7 @@ importers:
   packages/next:
     dependencies:
       '@deverjak/tenantkit-kernel':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../kernel
     devDependencies:
       '@types/react':

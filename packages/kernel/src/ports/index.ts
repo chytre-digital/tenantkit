@@ -109,6 +109,13 @@ export interface Database {
 export interface AuthzStore {
   ensureProfile(userId: string, email: string | null): Promise<ProfileRow>
   getMemberships(userId: string): Promise<Array<{ tenantId: string; role: string }>>
+  /**
+   * Every tenant the user belongs to, each hydrated with its `TenantSummary` and the caller's role — the
+   * "list my tenants with name/slug" read a tenant switcher / picker needs. A composition of `getMemberships`
+   * + tenant hydration that slug-in-URL apps otherwise hand-write over the service-role client. Ordering is
+   * unspecified; the caller sorts for display. Orphan memberships (tenant row gone) are dropped.
+   */
+  getMembershipsWithTenants(userId: string): Promise<Array<{ tenant: TenantSummary; role: string }>>
   getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>>
   getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null>
   getTenantTier(tenantId: string): Promise<string>

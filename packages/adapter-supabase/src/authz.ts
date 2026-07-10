@@ -34,6 +34,25 @@ export class SupabaseAuthzStore implements AuthzStore {
     return (data ?? []).map((m) => ({ tenantId: m.tenant_id, role: m.role }))
   }
 
+  async getMembershipsWithTenants(userId: string): Promise<Array<{ tenant: TenantSummary; role: string }>> {
+    // Two service-role reads keyed by the already-verified userId (a user's OWN membership rows are safe to
+    // read regardless of RLS). Reading tenants by id list — not a PostgREST embed — keeps it robust to schema
+    // exposure quirks and mirrors the loaders this replaces in the consuming apps.
+    const { data: memberships } = await this.db.schema('core').from('memberships')
+      .select('tenant_id, role').eq('user_id', userId)
+    if (!memberships || memberships.length === 0) return []
+    const ids = memberships.map((m) => m.tenant_id)
+    const { data: tenants, error } = await this.db.schema('core').from('tenants')
+      .select('id, slug, name, tier').in('id', ids)
+    // Surface transport/config errors (missing grant, unexposed schema) — must NOT masquerade as an empty list.
+    if (error) throw error
+    const roleByTenant = new Map(memberships.map((m) => [m.tenant_id, m.role]))
+    return (tenants ?? []).map((t) => ({
+      tenant: { id: t.id, slug: t.slug, name: t.name, tier: t.tier ?? 'free' },
+      role: roleByTenant.get(t.id) ?? 'staff',
+    }))
+  }
+
   async getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {
     const { data } = await this.db.schema('core').from('participant_accounts')
       .select('participant_id, tenant_id, relation').eq('user_id', userId)

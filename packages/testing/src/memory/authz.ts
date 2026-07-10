@@ -30,6 +30,16 @@ export class MemoryAuthzStore implements AuthzStore {
       .map((m) => ({ tenantId: m.tenantId, role: m.role }))
   }
 
+  async getMembershipsWithTenants(userId: string): Promise<Array<{ tenant: TenantSummary; role: string }>> {
+    return this.store.memberships
+      .filter((m) => m.userId === userId)
+      .map((m) => {
+        const t = this.store.tenants.find((x) => x.id === m.tenantId)
+        return t ? { tenant: { id: t.id, slug: t.slug, name: t.name, tier: t.tier }, role: m.role } : null
+      })
+      .filter((row): row is { tenant: TenantSummary; role: string } => row !== null)
+  }
+
   async getParticipantAccounts(
     userId: string,
   ): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {

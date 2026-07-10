@@ -70,6 +70,28 @@ export function runAuthzConformance(make: MakeHarness): void {
       const h = await make()
       expect(await h.runtime.authz.getTenantBySlug('no-such-slug')).toBeNull()
     })
+    it('lists memberships hydrated with their tenant summary + role (switcher/picker read)', async () => {
+      const h = await make()
+      const { userId, tenantId } = await h.seedUserWithMembership({
+        email: 'w@x.cz', role: 'admin', tenantSlug: 'aqua',
+      })
+      const rows = await h.runtime.authz.getMembershipsWithTenants(userId)
+      expect(rows).toContainEqual(
+        expect.objectContaining({
+          role: 'admin',
+          tenant: expect.objectContaining({ id: tenantId, slug: 'aqua' }),
+        }),
+      )
+      const row = rows.find((r) => r.tenant.id === tenantId)
+      expect(typeof row?.tenant.name).toBe('string')
+      expect(typeof row?.tenant.tier).toBe('string')
+    })
+    it('returns an empty list for a user with no memberships', async () => {
+      const h = await make()
+      // A seeded tenant exists, but this user has no membership row in it.
+      await h.seedUserWithMembership({ email: 'other@x.cz', tenantSlug: 'beta' })
+      expect(await h.runtime.authz.getMembershipsWithTenants('no-such-user')).toEqual([])
+    })
   })
 }
 
