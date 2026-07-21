@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-email-resend",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Resend EmailProvider adapter for the @deverjak/tenantkit-kernel ports. The transport the kernel's sendEmail() delegates to.",
   "license": "MIT",
   "type": "module",
@@ -24,7 +24,7 @@
     "build": "tsc -p tsconfig.json --outDir dist --declaration"
   },
   "peerDependencies": {
-    "@deverjak/tenantkit-kernel": "workspace:*"
+    "@deverjak/tenantkit-kernel": "workspace:^"
   },
   "dependencies": {
     "resend": "^6.14.0"
