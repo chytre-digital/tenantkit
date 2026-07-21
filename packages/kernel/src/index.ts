@@ -108,7 +108,16 @@ export {
 } from './tenancy/workspace'
 
 // --- rbac ---
-export { type AppRole, roleRank, roleAtLeast, ROLE_ORDER } from './rbac/roles'
+export {
+  type AppRole,
+  type RoleDef,
+  defineRoles,
+  roleRank,
+  roleAtLeast,
+  getRoleOrder,
+  getRoles,
+  getOwnerRole,
+} from './rbac/roles'
 export {
   can,
   mayEver,
@@ -240,10 +249,16 @@ export {
 
 // --- db (SQL building blocks) ---
 export {
+  ROLES_TABLE_SQL,
+  rolesSeedSql,
   IS_MEMBER_OF_SQL,
+  IS_OWNER_SQL,
+  IS_ADMIN_SQL,
   MY_ROLE_SQL,
   ROLE_RANK_SQL,
   SET_UPDATED_AT_SQL,
+  ENFORCE_SINGLE_OWNER_SQL,
+  ATTACH_SINGLE_OWNER_TRIGGER_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,
   CORE_FUNCTIONS_SQL,
   AUDIT_LOG_SQL,

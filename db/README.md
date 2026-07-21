@@ -34,10 +34,17 @@ Authorization is **belt-and-suspenders** (doc 01 §5, doc 04 §4): the app edge 
 errors, and **RLS is the invariant that holds even if a route is mis-wired**. Both gates read the *same*
 definitions.
 
+- **Roles are DATA, not a hardcoded enum.** The framework owns no role vocabulary. `core.roles(key, rank, label,
+  is_owner, is_admin)` is **seeded per deployment by the app** (mirroring its `defineRoles()` call — see
+  `rolesSeedSql`), and `core.role_rank(key)` is a lookup into it. Framework-CORE policies (`0001_core`) reference
+  only the capability predicates **`core.is_owner(tenant)`** / **`core.is_admin(tenant)`**, never a literal role
+  name. The role KEYS that appear in the illustrative DOMAIN migrations (`0002_courses`…, e.g.
+  `is_member_of(tenant_id, 'coach')`) are **app-owned examples** — they assume the app seeded matching keys; a new
+  project brings its own vocabulary and its own domain policies.
 - **One membership predicate.** Every tenant-owned table's policy calls **`core.is_member_of(tenant_id [, min_role])`**
   — never an inline `select … from memberships` subquery. Because the function is **`SECURITY DEFINER`**, a
   policy on `core.memberships` that must read `core.memberships` does **not** recurse (the "infinite recursion in
-  policy" bug Restaurio hit, doc 03 §7).
+  policy" bug Restaurio hit, doc 03 §7). `min_role` is `null` ⇒ any member; otherwise a role key rank-compared.
 - **`own` vs `any` is the `USING` clause.** Admin/owner writes gate on `is_member_of(tenant_id, 'admin')`; a
   coach's **own**-scope write *additionally* requires a `coach_assignments` match (directly on `courses`, or
   through the session's course for `attendance`/`sessions`). Multiple `FOR` policies are **OR-ed** by Postgres,

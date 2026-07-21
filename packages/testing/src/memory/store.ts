@@ -12,7 +12,11 @@
  * `is_member_of` / `can_act_for_participant` against the membership/participant-account rows — exactly the
  * SECURITY DEFINER functions from db/index.ts, in TypeScript. Tenant-scoped reads through the `user` handle are
  * filtered by these predicates; the `service` handle bypasses them (mirroring the service-role RLS bypass).
+ *
+ * Role ranks come from the kernel's `defineRoles()` registry (the in-memory analogue of the app-seeded
+ * `core.roles` table), so tests must declare their vocabulary before exercising rank gates or provisioning.
  */
+import { roleRank as kernelRoleRank, getOwnerRole } from '@deverjak/tenantkit-kernel'
 
 /** A GoTrue-equivalent user row (the IdentityProvider's table). Passwords are stored in clear — TESTS ONLY. */
 export interface AuthUserRow {
@@ -133,28 +137,19 @@ export class MemoryStore {
 
   // ── Simulated RLS predicates — the TS twins of core.is_member_of / core.can_act_for_participant (db/index.ts) ──
 
-  /** `core.role_rank()` — MUST match rbac/roles.ts + ROLE_RANK_SQL (db/index.ts). */
+  /** `core.role_rank()` — delegates to the kernel registry (the TS twin of the app-seeded core.roles lookup). */
   roleRank(role: string): number {
-    switch (role) {
-      case 'owner':
-        return 4
-      case 'admin':
-        return 3
-      case 'coach':
-        return 2
-      case 'staff':
-        return 1
-      default:
-        return 0
-    }
+    return kernelRoleRank(role)
   }
 
-  /** `core.is_member_of(tenant, minRole)` evaluated against the membership rows for `userId`. */
-  isMemberOf(userId: string | null, tenantId: string, minRole = 'staff'): boolean {
+  /** `core.is_member_of(tenant, minRole)` — `minRole` null/undefined ⇒ any member; else rank-compared. */
+  isMemberOf(userId: string | null, tenantId: string, minRole?: string | null): boolean {
     if (!userId) return false
     return this.memberships.some(
       (m) =>
-        m.userId === userId && m.tenantId === tenantId && this.roleRank(m.role) >= this.roleRank(minRole),
+        m.userId === userId &&
+        m.tenantId === tenantId &&
+        (minRole == null || this.roleRank(m.role) >= this.roleRank(minRole)),
     )
   }
 
@@ -187,7 +182,7 @@ function registerDefaultRpcs(store: MemoryStore): void {
     const slug = String(args['p_slug'] ?? '')
     const owner = String(args['p_owner'] ?? '')
     store.tenants.push({ id, name, slug, tier: 'free' })
-    store.memberships.push({ userId: owner, tenantId: id, role: 'owner' })
+    store.memberships.push({ userId: owner, tenantId: id, role: getOwnerRole() })
     return id
   })
 }

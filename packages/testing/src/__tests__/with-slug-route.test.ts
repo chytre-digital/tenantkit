@@ -6,9 +6,19 @@
  * (zero `getTenantTier` round-trips). The sibling `vertical-slice.test.ts` pins legacy `withRoute` behavior —
  * together they guarantee the two wrappers share the pipeline without drifting.
  */
-import { describe, it, expect } from 'vitest'
-import { withSlugRoute, resolveTenantWorkspace, jsonOk } from '@deverjak/tenantkit-kernel'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { withSlugRoute, resolveTenantWorkspace, jsonOk, defineRoles } from '@deverjak/tenantkit-kernel'
 import { createTestRuntime, type TestRuntime } from '../createTestRuntime'
+
+// Declare the sample role vocabulary this suite exercises (minRole gates read the rank ladder).
+beforeEach(() => {
+  defineRoles([
+    { key: 'staff', rank: 1 },
+    { key: 'coach', rank: 2 },
+    { key: 'admin', rank: 3, isAdmin: true },
+    { key: 'owner', rank: 4, isOwner: true, isAdmin: true },
+  ])
+})
 
 /** The trailing route args Next passes a handler: (Request, { params }). `params` may be a Promise or plain. */
 type RouteArgs = [Request, { params: unknown }]

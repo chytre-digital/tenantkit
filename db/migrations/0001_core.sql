@@ -14,10 +14,32 @@ create schema if not exists core;
 -- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 -- │ enums                                                                                                      │
 -- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-do $$ begin create type core.app_role          as enum ('staff', 'coach', 'admin', 'owner');        exception when duplicate_object then null; end $$;
+-- NOTE: member roles are NOT an enum — the framework does not own the role vocabulary. Each app declares its own
+-- roles as DATA in `core.roles` (below) + `defineRoles()` at boot, so a project's roles never leak into the core.
 do $$ begin create type core.tenant_status      as enum ('active', 'suspended');                     exception when duplicate_object then null; end $$;
 do $$ begin create type core.participant_relation as enum ('parent', 'guardian', 'self');              exception when duplicate_object then null; end $$;
 do $$ begin create type core.platform_role      as enum ('support', 'superadmin');                   exception when duplicate_object then null; end $$;
+
+-- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+-- │ core.roles — the app's role vocabulary as DATA (replaces the hardcoded app_role enum, doc 17 §8).         │
+-- ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- Seeded PER DEPLOYMENT by the app (its own migration, mirroring its `defineRoles()` call). The framework only
+-- compares by `rank` and reads the capability flags `is_owner` (the single top principal) / `is_admin` (may
+-- administer the tenant); the KEYS are entirely app-defined. Created before the functions that read it.
+create table if not exists core.roles (
+  key      text primary key,
+  rank     int  not null,
+  label    text,
+  is_owner boolean not null default false,
+  is_admin boolean not null default false
+);
+-- At most one owner role in the vocabulary (the per-tenant single-owner-MEMBERSHIP invariant is a trigger below).
+create unique index if not exists roles_single_owner on core.roles ((is_owner)) where is_owner;
+-- EXAMPLE app seed (the app owns this — override in your own migration to match your defineRoles()):
+--   insert into core.roles (key, rank, label, is_owner, is_admin) values
+--     ('member', 1, 'Member', false, false),
+--     ('manager', 2, 'Manager', false, true),
+--     ('owner',  3, 'Owner',  true,  true);
 
 -- ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 -- │ functions — the @reservation-core/db building blocks (doc 02 §14). Created BEFORE the policies use them.   │
@@ -35,22 +57,43 @@ create or replace function core.current_user_id()
   )::uuid
 $$;
 
--- Total order on roles (must match rbac/roles.ts roleRank: owner 4 > admin 3 > coach 2 > staff 1).
+-- Rank of a role — a lookup into the app-seeded core.roles (0 for unknown). Ranks match the app's defineRoles().
+-- STABLE (not immutable): it reads a table.
 create or replace function core.role_rank(p_role text)
-  returns int language sql immutable as $$
-  select case p_role
-    when 'owner' then 4 when 'admin' then 3 when 'coach' then 2 when 'staff' then 1 else 0 end
+  returns int language sql stable
+  set search_path = core, public as $$
+  select coalesce((select rank from core.roles where key = p_role), 0)
 $$;
 
 -- THE membership predicate. SECURITY DEFINER + STABLE → reads core.memberships without recursing (doc 03 §7).
-create or replace function core.is_member_of(p_tenant uuid, p_min_role text default 'staff')
+-- p_min_role null ⇒ ANY member (no minimum). A role key ⇒ rank-compared via core.role_rank.
+create or replace function core.is_member_of(p_tenant uuid, p_min_role text default null)
   returns boolean language sql security definer stable
   set search_path = core, public as $$
   select exists (
     select 1 from core.memberships m
     where m.tenant_id = p_tenant
       and m.user_id   = core.current_user_id()
-      and core.role_rank(m.role::text) >= core.role_rank(p_min_role)
+      and (p_min_role is null or core.role_rank(m.role) >= core.role_rank(p_min_role))
+  )
+$$;
+
+-- Capability predicates for framework-CORE policies, decoupled from role NAMES (doc 04 §6). The app maps its roles
+-- to these via core.roles.is_owner / is_admin. "owner" = the single top principal; "admin" = may administer the tenant.
+create or replace function core.is_owner(p_tenant uuid)
+  returns boolean language sql security definer stable
+  set search_path = core, public as $$
+  select exists (
+    select 1 from core.memberships m join core.roles r on r.key = m.role
+    where m.tenant_id = p_tenant and m.user_id = core.current_user_id() and r.is_owner
+  )
+$$;
+create or replace function core.is_admin(p_tenant uuid)
+  returns boolean language sql security definer stable
+  set search_path = core, public as $$
+  select exists (
+    select 1 from core.memberships m join core.roles r on r.key = m.role
+    where m.tenant_id = p_tenant and m.user_id = core.current_user_id() and r.is_admin
   )
 $$;
 
@@ -58,7 +101,7 @@ $$;
 create or replace function core.my_role(p_tenant uuid)
   returns text language sql security definer stable
   set search_path = core, public as $$
-  select m.role::text from core.memberships m
+  select m.role from core.memberships m
   where m.tenant_id = p_tenant and m.user_id = core.current_user_id()
 $$;
 
@@ -123,19 +166,36 @@ create table if not exists core.profiles (
   updated_at timestamptz not null default now()
 );
 
--- core.memberships — staff ↔ tenant ↔ role (doc 03 §3).
+-- core.memberships — staff ↔ tenant ↔ role (doc 03 §3). `role` is an app-defined key from core.roles (not an enum).
 create table if not exists core.memberships (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null,
   tenant_id  uuid not null references core.tenants(id) on delete cascade,
-  role       core.app_role not null,                          -- staff | coach | admin | owner
+  role       text not null references core.roles(key),         -- app vocabulary (see core.roles)
   created_at timestamptz not null default now(),
   unique (user_id, tenant_id)
 );
--- Partial-unique-index trick (doc 03 §3, doc 04 §2): EXACTLY one owner per tenant. Promotion = transfer.
-create unique index if not exists one_owner_per_tenant on core.memberships(tenant_id) where role = 'owner';
 create index if not exists memberships_user_idx   on core.memberships(user_id);
 create index if not exists memberships_tenant_idx on core.memberships(tenant_id);
+
+-- EXACTLY one owner per tenant (doc 04 §2). The owner ROLE is app-defined (core.roles.is_owner), so this is a
+-- trigger rather than a partial index on a literal role name. Promotion = transfer.
+create or replace function core.enforce_single_owner()
+  returns trigger language plpgsql
+  set search_path = core, public as $$
+  begin
+    if exists (select 1 from core.roles where key = new.role and is_owner)
+       and exists (
+         select 1 from core.memberships m join core.roles r on r.key = m.role
+         where m.tenant_id = new.tenant_id and r.is_owner and m.id <> new.id
+       ) then
+      raise exception 'tenant already has an owner' using errcode = '23505';
+    end if;
+    return new;
+  end $$;
+drop trigger if exists memberships_single_owner on core.memberships;
+create trigger memberships_single_owner before insert or update on core.memberships
+  for each row execute function core.enforce_single_owner();
 
 -- core.participant_accounts — a user account ↔ the participant it may act for (doc 03 §3). participant_id FK added
 -- in 0002 after the table exists; declared here without the cross-schema FK to keep migration order clean.
@@ -229,10 +289,12 @@ create table if not exists core.platform_admins (
 create or replace function core.create_tenant_with_owner(p_name text, p_slug text, p_owner uuid)
   returns uuid language plpgsql security definer
   set search_path = core, public as $$
-  declare v_id uuid;
+  declare v_id uuid; v_owner text;
   begin
+    select key into v_owner from core.roles where is_owner limit 1;
+    if v_owner is null then raise exception 'no owner role defined in core.roles' using errcode = 'P0001'; end if;
     insert into core.tenants (name, slug) values (p_name, p_slug) returning id into v_id;
-    insert into core.memberships (user_id, tenant_id, role) values (p_owner, v_id, 'owner');
+    insert into core.memberships (user_id, tenant_id, role) values (p_owner, v_id, v_owner);
     return v_id;
   end;
 $$;
@@ -264,7 +326,7 @@ alter table core.platform_admins    enable row level security;
 -- tenants: a member reads their tenant; only admin+ may update its settings/branding (owner does billing/tier).
 create policy tenants_read  on core.tenants for select using (core.is_member_of(id));
 create policy tenants_write on core.tenants for update
-  using (core.is_member_of(id, 'admin')) with check (core.is_member_of(id, 'admin'));
+  using (core.is_admin(id)) with check (core.is_admin(id));
 
 -- profiles: a user sees/edits ONLY their own profile row (doc 02 §7 bootstrap).
 create policy profiles_self_read   on core.profiles for select using (id = core.current_user_id());
@@ -276,32 +338,32 @@ create policy profiles_self_update on core.profiles for update using (id = core.
 -- 'owner' (owner transfer is its own RPC). is_member_of()/my_role() are SECURITY DEFINER → no recursion.
 create policy memberships_self_read on core.memberships for select using (user_id = core.current_user_id());
 create policy memberships_manage on core.memberships for all
-  using      (core.is_member_of(tenant_id, 'admin'))
+  using      (core.is_admin(tenant_id))
   with check (
-    core.is_member_of(tenant_id, 'admin')
-    and role <> 'owner'
-    and core.role_rank(role::text) < core.role_rank(core.my_role(tenant_id))
+    core.is_admin(tenant_id)
+    and not exists (select 1 from core.roles where key = role and is_owner)
+    and core.role_rank(role) < core.role_rank(core.my_role(tenant_id))
   );
 
 -- participant_accounts: a user sees their own links; a tenant admin may read the tenant's links (support).
 create policy participant_accounts_self_read on core.participant_accounts for select using (user_id = core.current_user_id());
-create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
+create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_admin(tenant_id));
 
 -- plugin activation/settings: admin+ manage (plugins:manage, doc 04 §3); any member may read which are on.
 create policy plugin_activations_read  on core.plugin_activations for select using (core.is_member_of(tenant_id));
 create policy plugin_activations_write on core.plugin_activations for all
-  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
-create policy plugin_settings_read  on core.plugin_settings for select using (core.is_member_of(tenant_id, 'admin'));
+  using (core.is_admin(tenant_id)) with check (core.is_admin(tenant_id));
+create policy plugin_settings_read  on core.plugin_settings for select using (core.is_admin(tenant_id));
 create policy plugin_settings_write on core.plugin_settings for all
-  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+  using (core.is_admin(tenant_id)) with check (core.is_admin(tenant_id));
 
 -- tenant_domains: admin+ (custom domains are a paid, owner/admin concern).
 create policy tenant_domains_rw on core.tenant_domains for all
-  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+  using (core.is_admin(tenant_id)) with check (core.is_admin(tenant_id));
 
 -- audit_log / email_events: read-only to admin+; writes happen in-tx via triggers/use-cases or service role.
-create policy audit_log_read    on core.audit_log    for select using (core.is_member_of(tenant_id, 'admin'));
-create policy email_events_read on core.email_events for select using (core.is_member_of(tenant_id, 'admin'));
+create policy audit_log_read    on core.audit_log    for select using (core.is_admin(tenant_id));
+create policy email_events_read on core.email_events for select using (core.is_admin(tenant_id));
 
 -- outbox: NO ordinary-caller policies — it is written in-tx by use-cases (the caller's own RLS lets the INSERT
 -- happen because the use-case runs as the caller) and drained by the dispatcher via the service role. Default

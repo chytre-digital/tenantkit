@@ -47,10 +47,16 @@ export class SupabaseAuthzStore implements AuthzStore {
     // Surface transport/config errors (missing grant, unexposed schema) — must NOT masquerade as an empty list.
     if (error) throw error
     const roleByTenant = new Map(memberships.map((m) => [m.tenant_id, m.role]))
-    return (tenants ?? []).map((t) => ({
-      tenant: { id: t.id, slug: t.slug, name: t.name, tier: t.tier ?? 'free' },
-      role: roleByTenant.get(t.id) ?? 'staff',
-    }))
+    // Role is the app's own vocabulary — never fabricate one. Every tenant here came from a membership row, so a
+    // missing entry means an orphan tenant row; skip it rather than invent a role.
+    return (tenants ?? [])
+      .map((t) => {
+        const role = roleByTenant.get(t.id)
+        return role == null
+          ? null
+          : { tenant: { id: t.id, slug: t.slug, name: t.name, tier: t.tier ?? 'free' }, role }
+      })
+      .filter((row): row is { tenant: TenantSummary; role: string } => row !== null)
   }
 
   async getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {

@@ -8,7 +8,6 @@
  * usable standalone; apps replace it via `setPermissionGrants`.
  */
 import type { AppRole } from './roles'
-import { roleRank } from './roles'
 
 export type Scope = 'own' | 'any'
 
@@ -16,19 +15,17 @@ export type Permission =
   | `${string}:${string}` // scope-less, e.g. 'billing:manage'
   | `${string}:${string}:${Scope}` // scoped, e.g. 'courses:edit:any'
 
-/** A role's grants: permission → the broadest scope granted (`any` implies `own`), or `true` for scope-less. */
+/**
+ * A role's grants: permission → the broadest scope granted (`any` implies `own`), or `true` for scope-less.
+ * Open-keyed by role: the vocabulary is app-defined (`defineRoles`), so this is a plain per-role map.
+ */
 export type GrantMap = Record<AppRole, Partial<Record<string, Scope | true>>>
 
 /**
- * Generic default grants (resource-agnostic): higher rank ⇒ broader. Apps supply a real catalogue; this keeps
- * `can()` meaningful before that wiring exists. Keyed by the scope-less `resource:action` stem.
+ * The grant map is DATA the app owns (doc 04 §3): empty until `setPermissionGrants` wires the app's catalogue.
+ * Keyed by the scope-less `resource:action` stem. An undeclared role simply grants nothing.
  */
-let GRANTS: GrantMap = {
-  staff: {},
-  coach: {},
-  admin: {},
-  owner: {},
-}
+let GRANTS: GrantMap = {}
 
 /** App wiring: replace the default grant map with the app's catalogue (doc 02 §15, doc 04 §3). */
 export function setPermissionGrants(grants: GrantMap): void {
@@ -64,5 +61,3 @@ export function mayEver(role: AppRole, perm: Permission): boolean {
   const { stem } = splitPerm(perm)
   return GRANTS[role]?.[stem] !== undefined
 }
-
-export { roleRank }

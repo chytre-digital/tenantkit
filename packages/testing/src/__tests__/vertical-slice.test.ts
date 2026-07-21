@@ -8,9 +8,19 @@
  * SECURITY DEFINER function runs. The Supabase adapter proves the identical slice against real Postgres RLS
  * in an integration lane; this proves the contract with zero vendors.
  */
-import { describe, it, expect } from 'vitest'
-import { withRoute, jsonOk, provisionTenant } from '@deverjak/tenantkit-kernel'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { withRoute, jsonOk, provisionTenant, defineRoles } from '@deverjak/tenantkit-kernel'
 import { createTestRuntime } from '../createTestRuntime'
+
+// Declare the sample role vocabulary this suite exercises (rank gates + owner provisioning read it).
+beforeEach(() => {
+  defineRoles([
+    { key: 'staff', rank: 1 },
+    { key: 'coach', rank: 2 },
+    { key: 'admin', rank: 3, isAdmin: true },
+    { key: 'owner', rank: 4, isOwner: true, isAdmin: true },
+  ])
+})
 
 describe('Phase 0 vertical slice — sign in → create tenant → create + list course, under RLS', () => {
   it('a member creates and lists their course; another tenant cannot see it', async () => {

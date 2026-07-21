@@ -4,10 +4,18 @@
  * call wired to a throwaway project in an integration lane; a community adapter is "done" when this goes green.
  */
 import { describe } from 'vitest'
+import { defineRoles } from '@deverjak/tenantkit-kernel'
 import { createTestRuntime } from '../createTestRuntime'
 import { type ConformanceHarness, runAllConformance } from '../conformance'
 
 function makeHarness(): ConformanceHarness {
+  // Declare a sample role vocabulary (the in-memory analogue of seeding core.roles) — what an adapter must do.
+  defineRoles([
+    { key: 'staff', rank: 1 },
+    { key: 'coach', rank: 2 },
+    { key: 'admin', rank: 3, isAdmin: true },
+    { key: 'owner', rank: 4, isOwner: true, isAdmin: true },
+  ])
   const t = createTestRuntime()
 
   // An RLS-aware domain RPC so the scoping suite has something to count (mirrors a real SECURITY DEFINER fn).

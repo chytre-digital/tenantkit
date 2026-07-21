@@ -13,6 +13,44 @@
  * from an `app.user_id` GUC it sets with `SET LOCAL` per request transaction. One indirection, every Postgres.
  */
 
+import type { RoleDef } from '../rbac/roles'
+
+/**
+ * `core.roles` — the app's role vocabulary as DATA (replaces the hardcoded `app_role` enum, doc 17 §8). The
+ * framework compares by `rank` and reads the capability flags `is_owner`/`is_admin`; the KEYS are app-defined.
+ * Created before `role_rank`/`memberships` (both reference it). Seed it with `rolesSeedSql(...)` from the same
+ * `RoleDef[]` the app passes to `defineRoles()`.
+ */
+export const ROLES_TABLE_SQL = /* sql */ `
+create table if not exists core.roles (
+  key      text primary key,
+  rank     int  not null,
+  label    text,
+  is_owner boolean not null default false,
+  is_admin boolean not null default false
+);
+create unique index if not exists roles_single_owner on core.roles ((is_owner)) where is_owner;
+`
+
+/** Build the idempotent seed for `core.roles` from the app's role hierarchy (mirrors its `defineRoles()`). */
+export function rolesSeedSql(roles: RoleDef[]): string {
+  const owners = roles.filter((r) => r.isOwner)
+  const ownerKey = (owners[0] ?? [...roles].sort((a, b) => b.rank - a.rank)[0])?.key
+  const lit = (s: string) => `'${s.replace(/'/g, "''")}'`
+  const rows = roles
+    .map((r) => {
+      const label = r.label != null ? lit(r.label) : 'null'
+      return `  (${lit(r.key)}, ${r.rank}, ${label}, ${r.key === ownerKey}, ${r.isAdmin === true})`
+    })
+    .join(',\n')
+  return /* sql */ `
+insert into core.roles (key, rank, label, is_owner, is_admin) values
+${rows}
+on conflict (key) do update set
+  rank = excluded.rank, label = excluded.label, is_owner = excluded.is_owner, is_admin = excluded.is_admin;
+`
+}
+
 /**
  * The PORTABILITY seam (doc 14): the caller's id, resolved from EITHER the Supabase/PostgREST JWT-claims GUC
  * OR a plain `app.user_id` GUC a direct-driver adapter sets with `SET LOCAL`. Every RLS predicate below calls
@@ -34,13 +72,37 @@ $$;
  * A table's tenant-isolation policy reads `core.is_member_of(tenant_id)` — never an inline subquery.
  */
 export const IS_MEMBER_OF_SQL = /* sql */ `
-create or replace function core.is_member_of(p_tenant uuid, p_min_role text default 'staff')
+create or replace function core.is_member_of(p_tenant uuid, p_min_role text default null)
   returns boolean language sql security definer stable as $$
   select exists (
     select 1 from core.memberships m
     where m.tenant_id = p_tenant
       and m.user_id = core.current_user_id()
-      and core.role_rank(m.role) >= core.role_rank(p_min_role)
+      and (p_min_role is null or core.role_rank(m.role) >= core.role_rank(p_min_role))
+  )
+$$;
+`
+
+/**
+ * Capability predicates for framework-CORE policies, decoupled from role NAMES (doc 04 §6). The app maps its
+ * roles to these via `core.roles.is_owner` / `is_admin`. "owner" = the single top principal; "admin" = may
+ * administer the tenant.
+ */
+export const IS_OWNER_SQL = /* sql */ `
+create or replace function core.is_owner(p_tenant uuid)
+  returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from core.memberships m join core.roles r on r.key = m.role
+    where m.tenant_id = p_tenant and m.user_id = core.current_user_id() and r.is_owner
+  )
+$$;
+`
+export const IS_ADMIN_SQL = /* sql */ `
+create or replace function core.is_admin(p_tenant uuid)
+  returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from core.memberships m join core.roles r on r.key = m.role
+    where m.tenant_id = p_tenant and m.user_id = core.current_user_id() and r.is_admin
   )
 $$;
 `
@@ -49,17 +111,16 @@ $$;
 export const MY_ROLE_SQL = /* sql */ `
 create or replace function core.my_role(p_tenant uuid)
   returns text language sql security definer stable as $$
-  select m.role::text from core.memberships m
+  select m.role from core.memberships m
   where m.tenant_id = p_tenant and m.user_id = core.current_user_id()
 $$;
 `
 
-/** Total order on roles (must match rbac/roles.ts `roleRank`, doc 02 §9). */
+/** Rank of a role — a lookup into the app-seeded core.roles (0 for unknown). Ranks match the app's defineRoles(). */
 export const ROLE_RANK_SQL = /* sql */ `
 create or replace function core.role_rank(p_role text)
-  returns int language sql immutable as $$
-  select case p_role
-    when 'owner' then 4 when 'admin' then 3 when 'coach' then 2 when 'staff' then 1 else 0 end
+  returns int language sql stable as $$
+  select coalesce((select rank from core.roles where key = p_role), 0)
 $$;
 `
 
@@ -152,14 +213,42 @@ create trigger audit_${table} after insert or update or delete on core.${table}
 /** Everything the generic audit trail needs, in dependency order (table → setter → trigger fn). */
 export const AUDIT_SQL = [AUDIT_LOG_SQL, SET_AUDIT_ACTOR_SQL, AUDIT_ROW_TRIGGER_FN_SQL].join('\n')
 
-/** The atomic provisioning RPC behind `provisionTenant` (doc 02 §8). */
+/**
+ * EXACTLY one owner-role membership per tenant (doc 04 §2). The owner ROLE is app-defined (core.roles.is_owner),
+ * so this is a trigger rather than a partial index on a literal role name. Attach with `attachSingleOwnerTriggerSql()`.
+ */
+export const ENFORCE_SINGLE_OWNER_SQL = /* sql */ `
+create or replace function core.enforce_single_owner()
+  returns trigger language plpgsql set search_path = core, public as $$
+  begin
+    if exists (select 1 from core.roles where key = new.role and is_owner)
+       and exists (
+         select 1 from core.memberships m join core.roles r on r.key = m.role
+         where m.tenant_id = new.tenant_id and r.is_owner and m.id <> new.id
+       ) then
+      raise exception 'tenant already has an owner' using errcode = '23505';
+    end if;
+    return new;
+  end $$;
+`
+
+/** Attach the single-owner guard to core.memberships (call after the table exists). */
+export const ATTACH_SINGLE_OWNER_TRIGGER_SQL = /* sql */ `
+drop trigger if exists memberships_single_owner on core.memberships;
+create trigger memberships_single_owner before insert or update on core.memberships
+  for each row execute function core.enforce_single_owner();
+`
+
+/** The atomic provisioning RPC behind `provisionTenant` (doc 02 §8). Owner role resolved from core.roles.is_owner. */
 export const CREATE_TENANT_WITH_OWNER_SQL = /* sql */ `
 create or replace function core.create_tenant_with_owner(p_name text, p_slug text, p_owner uuid)
   returns uuid language plpgsql security definer as $$
-  declare v_id uuid;
+  declare v_id uuid; v_owner text;
   begin
+    select key into v_owner from core.roles where is_owner limit 1;
+    if v_owner is null then raise exception 'no owner role defined in core.roles' using errcode = 'P0001'; end if;
     insert into core.tenants (name, slug) values (p_name, p_slug) returning id into v_id;
-    insert into core.memberships (user_id, tenant_id, role) values (p_owner, v_id, 'owner');
+    insert into core.memberships (user_id, tenant_id, role) values (p_owner, v_id, v_owner);
     return v_id;
   end;
 $$;
@@ -167,11 +256,15 @@ $$;
 
 /** Everything a fresh schema needs, in dependency order — applied by the migration helper. */
 export const CORE_FUNCTIONS_SQL = [
+  ROLES_TABLE_SQL, // the role vocabulary table — role_rank + memberships reference it
   CURRENT_USER_ID_SQL, // must exist before the predicates that call it
   ROLE_RANK_SQL,
   IS_MEMBER_OF_SQL,
+  IS_OWNER_SQL,
+  IS_ADMIN_SQL,
   MY_ROLE_SQL,
   SET_UPDATED_AT_SQL,
+  ENFORCE_SINGLE_OWNER_SQL,
   CREATE_TENANT_WITH_OWNER_SQL,
 ].join('\n')
 
@@ -207,7 +300,7 @@ create index if not exists participant_accounts_user_idx        on core.particip
 create index if not exists participant_accounts_participant_idx on core.participant_accounts(participant_id);
 alter table core.participant_accounts enable row level security;
 create policy participant_accounts_self_read  on core.participant_accounts for select using (user_id = core.current_user_id());
-create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_member_of(tenant_id, 'admin'));
+create policy participant_accounts_admin_read on core.participant_accounts for select using (core.is_admin(tenant_id));
 `
 
 /** May the caller act for this participant? SECURITY DEFINER RLS predicate (the participant-account gate). */
@@ -228,13 +321,13 @@ create table if not exists core.invitations (
   tenant_id        uuid not null references core.tenants(id) on delete cascade,
   email            text not null,
   kind             text not null check (kind in ('participant', 'staff')),
-  role             core.app_role,                                              -- staff invites only
+  role             text references core.roles(key),                            -- staff invites only (app vocabulary)
   participant_id   uuid,                                                       -- participant invites only
   relation         text,                                                       -- 'self' | app values
   token            uuid not null unique default gen_random_uuid(),
   status           text not null default 'pending' check (status in ('pending', 'accepted', 'revoked', 'expired')),
   invited_by       uuid,
-  invited_by_role  core.app_role,                                              -- snapshot for the staff rank-cap at accept
+  invited_by_role  text references core.roles(key),                            -- snapshot for the staff rank-cap at accept
   expires_at       timestamptz not null default (now() + interval '14 days'),
   accepted_at      timestamptz,
   accepted_user_id uuid,
@@ -246,7 +339,7 @@ create unique index if not exists invitations_pending_staff_uniq
   on core.invitations (tenant_id, lower(email)) where status = 'pending' and kind = 'staff';
 alter table core.invitations enable row level security;
 create policy invitations_admin_rw on core.invitations for all
-  using (core.is_member_of(tenant_id, 'admin')) with check (core.is_member_of(tenant_id, 'admin'));
+  using (core.is_admin(tenant_id)) with check (core.is_admin(tenant_id));
 `
 
 /**
@@ -258,8 +351,9 @@ export const ACCEPT_INVITATION_SQL = /* sql */ `
 create or replace function core.accept_invitation(p_token uuid, p_user uuid, p_user_email text)
   returns table (tenant_id uuid, kind text)
   language plpgsql security definer as $$
-declare v_inv core.invitations%rowtype;
+declare v_inv core.invitations%rowtype; v_owner text;
 begin
+  select key into v_owner from core.roles where is_owner limit 1;
   select * into v_inv from core.invitations where token = p_token for update;
   if not found                 then raise exception 'invite_not_found'  using errcode = 'P0001'; end if;
   if v_inv.status <> 'pending' then raise exception 'invite_not_pending' using errcode = 'P0001'; end if;
@@ -276,8 +370,9 @@ begin
     values (p_user, v_inv.participant_id, v_inv.tenant_id, coalesce(v_inv.relation, 'self'), true, v_inv.invited_by)
     on conflict (user_id, participant_id) do nothing;
   else
-    if v_inv.role is null or v_inv.role = 'owner'
-       or core.role_rank(v_inv.role::text) >= core.role_rank(coalesce(v_inv.invited_by_role::text, 'owner')) then
+    -- Staff rank-cap: never null, never the owner role, never a role >= the inviter's snapshotted role.
+    if v_inv.role is null or v_inv.role = v_owner
+       or core.role_rank(v_inv.role) >= core.role_rank(coalesce(v_inv.invited_by_role, v_owner)) then
       raise exception 'invite_role_invalid' using errcode = 'P0001';
     end if;
     insert into core.memberships (user_id, tenant_id, role)
