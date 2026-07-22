@@ -33,6 +33,9 @@ export type {
   PaymentProvider,
   PaymentEvent,
   StorageProvider,
+  SignedUploadRequest,
+  SignedUploadTarget,
+  StorageObjectStat,
   Clock,
   IdGen,
 } from './ports'

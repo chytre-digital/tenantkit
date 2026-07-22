@@ -1,5 +1,20 @@
 # @deverjak/tenantkit-kernel
 
+## 0.7.2
+
+### Patch Changes
+
+- Add optional direct-upload + object-stat capabilities to `StorageProvider` (Výkazník spec §7 / P2).
+
+  - **Kernel:** two new OPTIONAL methods on `StorageProvider` — `createSignedUpload?(SignedUploadRequest)` (mint a
+    short-lived pre-signed target so a client PUTs bytes straight to storage, bypassing the app server's memory)
+    and `stat?({ bucket, key })` (object metadata, or `null` if absent). New exported types `SignedUploadRequest`,
+    `SignedUploadTarget`, `StorageObjectStat`. Purely additive — existing adapters/consumers are unaffected.
+  - **Supabase adapter:** implements both via `createSignedUploadUrl(key, { upsert })` and
+    `storage.from(bucket).info(key)`; `stat` maps a missing object to `null` rather than throwing. The client is
+    now injectable for unit tests. Deliberately vendor-neutral primitives only — photo/EXIF/thumbnail/AV/reward
+    rules stay in the app.
+
 ## 0.7.1
 
 ### Patch Changes

@@ -162,7 +162,38 @@ Guarantees:
 | `IdentityProvider.*` | `supabase.auth.*` — password / magic link (via `admin.generateLink`) / OTP / OAuth / `admin.createUser` |
 | `SessionStore.refresh()` | the `updateSession` cookie‑rotation pattern (call it in middleware) |
 | `AuthzStore.*` | service‑role reads of `core.{profiles,memberships,participant_accounts,plugin_activations,tenants}` keyed by the verified `userId` |
-| `StorageProvider.*` | `supabase.storage.*` |
+| `StorageProvider.put/signedUrl/remove` | `supabase.storage.from(bucket).upload / createSignedUrl / remove` |
+| `StorageProvider.createSignedUpload?` *(optional)* | `createSignedUploadUrl(key, { upsert })` — a direct-upload PUT target (see below) |
+| `StorageProvider.stat?` *(optional)* | `storage.from(bucket).info(key)` — object metadata, or `null` if absent |
+
+### Direct uploads — client bytes never touch the app server
+
+For large blobs (e.g. a mobile app posting a field photo), don't stream through your Route Handler. Mint a
+**pre-signed upload target** server-side and hand it to the client, which PUTs straight to Supabase Storage:
+
+```ts
+// server: a withSlugRoute() handler, authorized as usual
+const target = await ctx.runtime.storage!.createSignedUpload({
+  bucket: 'evidence', key: `jobs/${jobId}/before.jpg`, contentType: 'image/jpeg', expiresInSec: 900, upsert: false,
+})
+return jsonOk({ target }) // { url, method: 'PUT', headers, expiresAt }
+```
+
+```ts
+// client (e.g. Expo): upload the bytes directly — no server round-trip for the payload
+await fetch(target.url, { method: target.method, headers: target.headers, body: fileBytes })
+```
+
+`createSignedUpload` and `stat` are **optional** capabilities — feature-detect (`if (runtime.storage?.createSignedUpload)`)
+since other adapters may not implement them. Two guarantees to know:
+
+- **Service-role, but scoped by you.** The signed target is minted with the service-role key, so the *route*
+  that calls `createSignedUpload` must authorize the caller and constrain `bucket`/`key` — the framework signs
+  the transport, your app owns the policy (which object, size/type limits, before/after semantics, EXIF, AV,
+  thumbnails, reward logic all stay in your app).
+- **Supabase caps the upload window itself.** Supabase does not accept a per-URL upload expiry; its upload
+  tokens have a fixed server-side TTL (default ~2h). `expiresInSec` only sets the advertised `expiresAt`, so
+  keep it within that window. (Download URLs via `signedUrl()` **do** honor `expiresInSec`.)
 
 ## Database setup (one migration)
 

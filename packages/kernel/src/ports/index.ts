@@ -186,10 +186,53 @@ export type PaymentEvent =
 // 5) StorageProvider — files (logos, exports). Optional; replaces Supabase Storage.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * A request to mint a short-lived **direct-upload** target so a client (e.g. a mobile app posting a field
+ * photo) uploads straight to object storage — the bytes never pass through the app server's memory. Purely a
+ * transport primitive: any domain policy (which bucket/key, size/type limits, before/after semantics, EXIF,
+ * antivirus, thumbnails, reward logic) is the app's concern, not the framework's.
+ */
+export interface SignedUploadRequest {
+  bucket: string
+  key: string
+  contentType: string
+  expiresInSec: number
+  upsert?: boolean
+}
+
+/**
+ * A pre-signed destination the client uploads to directly. `expiresAt` is the epoch-ms deadline the target is
+ * meant to remain valid until (derived from `expiresInSec`); note some providers enforce their own server-side
+ * ceiling on upload tokens independently of this value — see the adapter docs.
+ */
+export interface SignedUploadTarget {
+  url: string
+  method: 'PUT' | 'POST'
+  headers?: Record<string, string>
+  expiresAt: number
+}
+
+/** Metadata for a stored object (`stat`), or `null` when the object does not exist. */
+export interface StorageObjectStat {
+  size: number
+  contentType: string | null
+  etag?: string
+}
+
 export interface StorageProvider {
   put(input: { bucket: string; key: string; body: ArrayBuffer | Uint8Array; contentType: string }): Promise<{ key: string }>
   signedUrl(input: { bucket: string; key: string; expiresInSec: number }): Promise<string>
   remove(input: { bucket: string; key: string }): Promise<void>
+  /**
+   * OPTIONAL capability — mint a direct-upload target so the client PUT/POSTs bytes straight to storage.
+   * Absent (`undefined`) on adapters that can't pre-sign uploads; callers must feature-detect before use.
+   */
+  createSignedUpload?(input: SignedUploadRequest): Promise<SignedUploadTarget>
+  /**
+   * OPTIONAL capability — read an object's metadata (size / content-type / etag), or resolve `null` if it does
+   * not exist (a missing object is not an error). Absent on adapters that can't stat objects.
+   */
+  stat?(input: { bucket: string; key: string }): Promise<StorageObjectStat | null>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
