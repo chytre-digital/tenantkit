@@ -1,5 +1,20 @@
 # @deverjak/tenantkit-kernel
 
+## 0.7.1
+
+### Patch Changes
+
+- Add `diffRoleSeed(getRoles(), rows)` — a pure, read-only drift check between the app's declared roles
+  (`defineRoles`) and the rows actually seeded in `core.roles`, returning a ready-to-log report of missing/extra
+  roles and rank/flag mismatches (safe to run at startup or in CI; never mutates the DB). Exports the
+  `RoleRow` / `RoleSeedDiff` / `RoleSeedMismatch` types and shares the owner-derivation with `rolesSeedSql` so the
+  seed and the check agree by construction. Purely additive — existing APIs unchanged.
+
+  Docs (`04-roles-and-permissions.md`): roles are now documented as **app-defined data**, not a framework enum —
+  `defineRoles()` / `setPermissionGrants()` / the `core.roles` table, the `is_owner` / `is_admin` capability flags
+  and the `core.is_owner()` / `core.is_admin()` predicates, the `defineRoles ⇄ core.roles` seed/verify bridge, and
+  a clarification that rank does not imply automatic permission-grant inheritance.
+
 ## 0.5.0
 
 ### Minor Changes

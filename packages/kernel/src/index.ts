@@ -251,6 +251,10 @@ export {
 export {
   ROLES_TABLE_SQL,
   rolesSeedSql,
+  diffRoleSeed,
+  type RoleRow,
+  type RoleSeedDiff,
+  type RoleSeedMismatch,
   IS_MEMBER_OF_SQL,
   IS_OWNER_SQL,
   IS_ADMIN_SQL,

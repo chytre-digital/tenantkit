@@ -2,9 +2,15 @@
 
 > How **who you are** becomes **what you may do**, on both gates. The same definitions feed `withRoute`
 > (the app edge, see [02 §4](02-reservation-core.md)) **and** Postgres RLS (the database invariant, see
-> [03 §7](03-data-model.md)). Names here (`app_role`, `core.memberships`, `core.participant_accounts`,
-> `core.is_member_of()`, `core.can_act_for_participant()`) are authoritative and taken verbatim from
-> [03](03-data-model.md).
+> [03 §7](03-data-model.md)). Names here (`core.roles`, `core.memberships`, `core.participant_accounts`,
+> `core.is_member_of()`, `core.is_owner()`, `core.is_admin()`, `core.can_act_for_participant()`) are
+> authoritative and taken verbatim from [03](03-data-model.md).
+>
+> **The framework owns no role vocabulary.** It provides only the *mechanism* — a ranked ladder plus two
+> capability flags (`is_owner`, `is_admin`) — and each app declares its own roles at boot with `defineRoles()`
+> (TypeScript) mirrored by a `core.roles` seed (SQL). The `staff/coach/admin/owner` names below are
+> **Terminar's example catalogue for one domain**, not a framework default; a different app brings its own (see
+> the Výkazník `worker/reviewer/admin/owner` set in §2).
 
 ## 1. The actor model
 
@@ -32,16 +38,37 @@ Key facts that the rest of this doc builds on:
 
 ## 2. Role hierarchy
 
-Staff roles are the `app_role` enum from [03](03-data-model.md), totally ordered by rank. This generalizes
-both reference apps' `employee < admin < owner` (we rename `employee → staff` and insert `coach` for the
-course domain — see [02 §9](02-reservation-core.md)).
+Staff roles are **app-defined data, not a framework enum.** The type is an open `AppRole = string`; the
+framework only knows how to compare roles by **rank** and which one is the **owner**. Each app declares its
+vocabulary once at boot with `defineRoles()` (mirroring `setPermissionGrants()` and `setTierEntitlements()`),
+so a project's role names never leak into the framework. `defineRoles()` validates the set (unique keys, at
+most one `isOwner`, owner defaults to the top rank) and backs `roleRank()` / `roleAtLeast()`.
+
+Terminar declares the catalogue below — `employee < admin < owner` generalized (rename `employee → staff`,
+insert `coach` for the course domain, see [02 §9](02-reservation-core.md)):
 
 ```ts
-// @reservation-core/domain/rbac  (app supplies the ordered hierarchy)
-type AppRole = 'staff' | 'coach' | 'admin' | 'owner'      // ranks 1..4
+// apps/terminar/src/server/runtime.ts — the composition root, runs before any authz check
+import { defineRoles } from '@deverjak/tenantkit-kernel'
+
+defineRoles([
+  { key: 'staff', rank: 1 },
+  { key: 'coach', rank: 2 },
+  { key: 'admin', rank: 3, isAdmin: true },
+  { key: 'owner', rank: 4, isOwner: true, isAdmin: true },
+])
 ```
 
-| Rank | `app_role` | CZ (UI) | One-line scope |
+> **A different app declares a different set — nothing else changes.** Výkazník (a field-ops product) uses
+> `defineRoles([{ key: 'worker', rank: 10, label: 'Pracovník' }, { key: 'reviewer', rank: 20, label: 'Kontrolor' },
+> { key: 'admin', rank: 30, label: 'Správce', isAdmin: true }, { key: 'owner', rank: 40, label: 'Vlastník', isAdmin: true, isOwner: true }])`.
+> The ranks are arbitrary integers (only their *order* matters), and `label` is optional (apps usually localize
+> labels in their own i18n instead).
+
+The rest of this section describes **Terminar's** four roles concretely; read them as an illustration of the
+mechanism, not a fixed framework vocabulary.
+
+| Rank | Role key | CZ (UI) | One-line scope |
 |---|---|---|---|
 | 1 | `staff` | Recepce / Personál | Front-desk: process applications, manage participants, mark attendance — no course authorship, no settings. |
 | 2 | `coach` | Lektor / Trenér | Owns the courses they are assigned to: sessions, attendance, credits **on own courses**. |
@@ -51,10 +78,12 @@ type AppRole = 'staff' | 'coach' | 'admin' | 'owner'      // ranks 1..4
 `roleAtLeast(role, min)` (rank comparison) is the coarse gate; the fine-grained catalogue in §3 is the precise
 one. `withRoute({ minRole })` ANDs with `withRoute({ can })`.
 
-> **`owner` is unique per tenant.** Enforced in the database by the partial-unique index from
-> [03 §3](03-data-model.md): `create unique index one_owner_per_tenant on core.memberships(tenant_id) where
-> role = 'owner';`. Promoting a new owner is therefore a *transfer* (demote the incumbent to `admin` in the
-> same transaction), never a second insert — see §8.
+> **The owner role is unique per tenant.** "Owner" is whichever role the app flags `isOwner` (Terminar's
+> `owner`, Výkazník's `owner`, rank-40) — `core.roles.is_owner` records it, and a partial unique index
+> (`roles_single_owner`) allows **at most one** owner role in the vocabulary. Per-tenant uniqueness is enforced
+> by the `core.enforce_single_owner()` trigger on `core.memberships` (it reads `core.roles.is_owner` rather than
+> a literal `role = 'owner'`, so it works for any vocabulary — see [03 §3](03-data-model.md)). Promoting a new
+> owner is therefore a *transfer* (demote the incumbent in the same transaction), never a second insert — see §8.
 
 ### What each role can do (capability matrix)
 
@@ -83,11 +112,52 @@ Read top-to-bottom as "minimum role for the common case"; `own` means *only rows
 only `owner` manages `admin`s and performs owner transfer (§8). This "can't escalate past yourself" rule is
 enforced in the staff-management use-case **and** by RLS (§5).
 
-## 3. The COURSE-domain permission catalogue
+### Capability flags — `is_owner` / `is_admin`
+
+Two boolean flags on each role decouple the **framework's** authorization from your role *names*, so core
+policies never hardcode a vocabulary:
+
+- **`is_owner`** — the single top principal every tenant has exactly one of. Used for provisioning
+  (`create_tenant_with_owner` resolves the owner role via `where is_owner`), the one-owner invariant, and the
+  staff invite rank-cap. At most one role in the vocabulary may set it.
+- **`is_admin`** — "may administer the tenant". A declarative capability, independent of rank: an app *could*
+  flag more than one role `is_admin`, and it is not implied by a high rank.
+
+Framework-CORE RLS (the `0001_core` migration) references **only** the capability predicates
+`core.is_owner(tenant)` and `core.is_admin(tenant)` — never a literal role name — so those policies work
+unchanged for any app's vocabulary. (App-owned *domain* policies may still name their own roles, e.g.
+`core.is_member_of(tenant_id, 'coach')`; those keys are the app's, not the framework's — see §4.)
+
+### The TS ↔ SQL bridge (`defineRoles` ⇄ `core.roles`)
+
+Ranks and flags live in **two** places that must agree: `defineRoles()` (evaluated by `withRoute`) and the
+`core.roles` table (read by RLS via `core.role_rank()` / `core.is_owner()` / `core.is_admin()`). The kernel
+keeps them in lock-step:
+
+- **Seed** `core.roles` from the *same* `RoleDef[]` you pass to `defineRoles()`, with
+  `rolesSeedSql(roles)` — an idempotent `insert … on conflict do update` (it derives the owner the same way
+  `defineRoles` does). It **never deletes** a role, because live memberships may reference it; removing a role
+  or changing which one is owner stays an explicit, transactional migration.
+- **Verify** there's no drift with `diffRoleSeed(getRoles(), rows)`, where `rows` come from a plain
+  `select key, rank, is_owner, is_admin from core.roles`. It is **pure and read-only** — safe to run at startup
+  or in CI without ever mutating the database — and returns a ready-to-log `report` of any missing/extra roles
+  or rank/flag mismatches (labels are ignored, being an i18n concern). `core.role_rank(key)` is just a lookup
+  into this seeded table, so app- and DB-gates share one set of ranks.
+
+## 3. The permission catalogue (an app-owned example: Terminar's course domain)
 
 Coarse roles are not enough — the brief (and legacy) call for **fine-grained `resource:action:scope`
-permissions**. `scope ∈ { own, any }` is what later becomes an RLS `USING` clause (§5). The catalogue lives in
-the app config (`TERMINAR_PERMISSIONS`, wired in [02 §15](02-reservation-core.md)); the type comes from core:
+permissions**. `scope ∈ { own, any }` is what later becomes an RLS `USING` clause (§5). The catalogue below is
+**the app's** (Terminar's course domain); a different app declares its own. The framework only knows how to
+*evaluate* `can(role, perm)` — the grant map is data the app wires once at boot with
+`setPermissionGrants(TERMINAR_PERMISSIONS)` ([02 §15](02-reservation-core.md)), exactly like `defineRoles()`.
+The type comes from core:
+
+> **Rank does not imply grant inheritance.** The two staff gates are independent: `roleAtLeast()` is a coarse
+> rank ladder, but a higher rank does **not** automatically receive a lower role's permission grants. Every
+> role's grants are listed **explicitly** in the map (an `admin` row that omits `courses:create` simply lacks
+> it, no matter that `admin` outranks `coach`). "Inheritance" you see in the tables below is just the app
+> choosing to grant a superset — it is authored, not derived.
 
 ```ts
 // @reservation-core/domain/rbac
@@ -135,8 +205,9 @@ RLS independently enforces the same scoping in SQL.
 
 ### Default role → permission grant map
 
-The map the app ships (`TERMINAR_PERMISSIONS`). Cells: `own`, `any`, or `—` (not granted). A role with `any`
-implicitly satisfies an `own` requirement.
+The map the app ships (`TERMINAR_PERMISSIONS`, passed to `setPermissionGrants()` at boot). Cells: `own`,
+`any`, or `—` (not granted) — **each role's row is authored in full** (§3, "rank does not imply inheritance").
+A role with `any` implicitly satisfies an `own` requirement.
 
 | Permission | `staff` | `coach` | `admin` | `owner` |
 |---|---|---|---|---|
@@ -275,14 +346,15 @@ The "can't escalate past yourself" rule (§2) is enforced in the database, not o
 misused service-role path still cannot create a rogue owner:
 
 ```sql
--- An actor may INSERT/UPDATE a membership only for a role strictly below their own rank,
--- and never the 'owner' role (owner transfer goes through a SECURITY DEFINER RPC, §8).
+-- An actor may INSERT/UPDATE a membership only for a role strictly below their own rank, and never the owner
+-- role (owner transfer goes through a SECURITY DEFINER RPC, §8). "owner" is the capability flag, not a literal
+-- name, so this works for any app's vocabulary.
 create policy memberships_manage on core.memberships
   for all
   using      (core.is_member_of(tenant_id, 'admin'))
   with check (
     core.is_member_of(tenant_id, 'admin')
-    and role <> 'owner'
+    and not exists (select 1 from core.roles r where r.key = role and r.is_owner)
     and core.role_rank(role) < core.role_rank(core.my_role(tenant_id))
   );
 -- self-row reads stay open so a user can always see their own membership:
@@ -291,7 +363,7 @@ create policy memberships_self_read on core.memberships
 ```
 
 `core.my_role(tenant)` is the `SECURITY DEFINER` companion to `is_member_of` returning the caller's own
-`app_role` in the tenant (added to `@reservation-core/db` alongside `role_rank`). Cross-member admin *reads*
+role key in the tenant (added to `@reservation-core/db` alongside `role_rank`). Cross-member admin *reads*
 (the staff list) go through a `SECURITY DEFINER` RPC or the service-role client that re-checks authorization in
 code — the same rule as [03 §7](03-data-model.md).
 
@@ -299,7 +371,7 @@ code — the same rule as [03 §7](03-data-model.md).
 
 The platform operator (persona "Provozovatel", [00 §4](00-overview.md)) onboards tenants and runs support; by
 definition they act **across** tenants, which tenant-scoped RLS is built to forbid. They are modeled as a
-**separate grant table**, deliberately *not* a high `app_role` (there is no "super-owner" — that would pollute
+**separate grant table**, deliberately *not* a high-ranked role (there is no "super-owner" — that would pollute
 every tenant policy):
 
 ```sql
@@ -397,7 +469,7 @@ Security-relevant authorization changes are append-only `core.audit_log` rows ([
 | Membership granted | `membership` | `null` → `{role}` | who invited, target user, tenant. |
 | Role changed | `membership` | `{role:old}` → `{role:new}` | rank-cap enforced (§5); demotions included. |
 | Membership revoked | `membership` | `{role}` → `null` | |
-| **Owner transfer** | `membership` | `{owner:A, admin:B}` → `{owner:B, admin:A}` | atomic in one `SECURITY DEFINER` RPC `transfer_ownership(tenant, new_owner)`; demotes incumbent so the `one_owner_per_tenant` index never trips (§2). |
+| **Owner transfer** | `membership` | `{owner:A, admin:B}` → `{owner:B, admin:A}` | atomic in one `SECURITY DEFINER` RPC `transfer_ownership(tenant, new_owner)`; demotes incumbent so the `core.enforce_single_owner()` trigger never trips (§2). |
 | Plugin toggled | `plugin` | `{enabled:bool}` | also in scope of `plugins:manage`. |
 | Operator action | `platform` | varies | `actor_user_id` = operator; `tenant_id` = target or `null` (§6). |
 

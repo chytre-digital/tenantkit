@@ -36,7 +36,8 @@ definitions.
 
 - **Roles are DATA, not a hardcoded enum.** The framework owns no role vocabulary. `core.roles(key, rank, label,
   is_owner, is_admin)` is **seeded per deployment by the app** (mirroring its `defineRoles()` call — see
-  `rolesSeedSql`), and `core.role_rank(key)` is a lookup into it. Framework-CORE policies (`0001_core`) reference
+  `rolesSeedSql`, and `diffRoleSeed(getRoles(), rows)` for a pure, read-only startup/CI drift check), and
+  `core.role_rank(key)` is a lookup into it. Framework-CORE policies (`0001_core`) reference
   only the capability predicates **`core.is_owner(tenant)`** / **`core.is_admin(tenant)`**, never a literal role
   name. The role KEYS that appear in the illustrative DOMAIN migrations (`0002_courses`…, e.g.
   `is_member_of(tenant_id, 'coach')`) are **app-owned examples** — they assume the app seeded matching keys; a new

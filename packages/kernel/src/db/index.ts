@@ -32,16 +32,46 @@ create table if not exists core.roles (
 create unique index if not exists roles_single_owner on core.roles ((is_owner)) where is_owner;
 `
 
-/** Build the idempotent seed for `core.roles` from the app's role hierarchy (mirrors its `defineRoles()`). */
-export function rolesSeedSql(roles: RoleDef[]): string {
+/** A row of the app-seeded `core.roles` table (snake_case, as `select * from core.roles` returns it). */
+export interface RoleRow {
+  key: string
+  rank: number
+  label?: string | null
+  is_owner?: boolean
+  is_admin?: boolean
+}
+
+/** The seed-shaped form of a `RoleDef`: owner DERIVED (flagged, else top rank) and flags defaulted — exactly what `core.roles` stores. */
+interface EffectiveRole {
+  key: string
+  rank: number
+  label: string | null
+  is_owner: boolean
+  is_admin: boolean
+}
+
+/**
+ * Normalize `RoleDef[]` to the rows `rolesSeedSql` writes (mirroring `defineRoles()`): the owner is the single
+ * `isOwner`-flagged role, or — if none is flagged — the top-ranked one; `label`/`isAdmin` default to `null`/`false`.
+ * Shared by `rolesSeedSql` and `diffRoleSeed` so the seed and the drift-check agree by construction.
+ */
+function effectiveRoles(roles: RoleDef[]): EffectiveRole[] {
   const owners = roles.filter((r) => r.isOwner)
   const ownerKey = (owners[0] ?? [...roles].sort((a, b) => b.rank - a.rank)[0])?.key
+  return roles.map((r) => ({
+    key: r.key,
+    rank: r.rank,
+    label: r.label ?? null,
+    is_owner: r.key === ownerKey,
+    is_admin: r.isAdmin === true,
+  }))
+}
+
+/** Build the idempotent seed for `core.roles` from the app's role hierarchy (mirrors its `defineRoles()`). */
+export function rolesSeedSql(roles: RoleDef[]): string {
   const lit = (s: string) => `'${s.replace(/'/g, "''")}'`
-  const rows = roles
-    .map((r) => {
-      const label = r.label != null ? lit(r.label) : 'null'
-      return `  (${lit(r.key)}, ${r.rank}, ${label}, ${r.key === ownerKey}, ${r.isAdmin === true})`
-    })
+  const rows = effectiveRoles(roles)
+    .map((r) => `  (${lit(r.key)}, ${r.rank}, ${r.label != null ? lit(r.label) : 'null'}, ${r.is_owner}, ${r.is_admin})`)
     .join(',\n')
   return /* sql */ `
 insert into core.roles (key, rank, label, is_owner, is_admin) values
@@ -49,6 +79,53 @@ ${rows}
 on conflict (key) do update set
   rank = excluded.rank, label = excluded.label, is_owner = excluded.is_owner, is_admin = excluded.is_admin;
 `
+}
+
+/** One field of one role where the declared vocabulary and the seeded `core.roles` row disagree. */
+export interface RoleSeedMismatch {
+  key: string
+  field: 'rank' | 'is_owner' | 'is_admin'
+  code: number | boolean
+  db: number | boolean
+}
+
+/** The result of `diffRoleSeed` — `inSync` plus the specifics and a ready-to-log `report` (empty when in sync). */
+export interface RoleSeedDiff {
+  inSync: boolean
+  missing: string[] // declared in code (`getRoles()`), absent from `core.roles`
+  extra: string[] // seeded in `core.roles`, not declared in code
+  mismatched: RoleSeedMismatch[]
+  report: string
+}
+
+/**
+ * Compare the app's DECLARED roles (`getRoles()`) against the rows actually seeded in `core.roles`, to catch
+ * TS↔SQL drift (doc 04 §2 — the two gates must read the same ranks/flags). PURE + READ-ONLY: it never touches
+ * the database — the caller passes the rows it fetched with a plain `select key, rank, is_owner, is_admin from
+ * core.roles`, so a startup/CI check can run without any risk of mutating a production DB. Presence, `rank`,
+ * `is_owner` and `is_admin` gate `inSync`; `label` is deliberately ignored (an i18n concern, per `RoleDef`).
+ * The owner is compared in its EFFECTIVE form (top-rank default), matching what `rolesSeedSql` writes.
+ */
+export function diffRoleSeed(declared: RoleDef[], dbRows: RoleRow[]): RoleSeedDiff {
+  const code = new Map(effectiveRoles(declared).map((r) => [r.key, r]))
+  const db = new Map(dbRows.map((r) => [r.key, r]))
+  const missing = [...code.keys()].filter((k) => !db.has(k)).sort()
+  const extra = [...db.keys()].filter((k) => !code.has(k)).sort()
+  const mismatched: RoleSeedMismatch[] = []
+  for (const [key, c] of code) {
+    const d = db.get(key)
+    if (!d) continue
+    if (d.rank !== c.rank) mismatched.push({ key, field: 'rank', code: c.rank, db: d.rank })
+    if ((d.is_owner ?? false) !== c.is_owner) mismatched.push({ key, field: 'is_owner', code: c.is_owner, db: d.is_owner ?? false })
+    if ((d.is_admin ?? false) !== c.is_admin) mismatched.push({ key, field: 'is_admin', code: c.is_admin, db: d.is_admin ?? false })
+  }
+  const inSync = missing.length === 0 && extra.length === 0 && mismatched.length === 0
+  const lines: string[] = []
+  if (missing.length) lines.push(`  missing in core.roles (declared, not seeded): ${missing.join(', ')}`)
+  if (extra.length) lines.push(`  extra in core.roles (seeded, not declared): ${extra.join(', ')}`)
+  for (const m of mismatched) lines.push(`  ${m.key}.${m.field}: code=${String(m.code)} db=${String(m.db)}`)
+  const report = inSync ? '' : ['core.roles drift vs defineRoles():', ...lines].join('\n')
+  return { inSync, missing, extra, mismatched, report }
 }
 
 /**
