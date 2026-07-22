@@ -2,10 +2,12 @@
  * The raw Supabase client factories — the ONE place @supabase/* is imported. Everything else in this adapter
  * builds on these. Three roles, mirroring the four-factory pattern from the reference apps, here consolidated:
  *
- *   • userClient(req)  — cookie-bound SSR client; RLS runs AS the signed-in user. PostgREST injects the JWT,
- *                        so `core.current_user_id()` resolves with ZERO extra work (no SET LOCAL needed).
- *   • anonClient()     — anon role; RLS applies, no identity (public catalogue reads).
- *   • adminClient()    — service role; BYPASSES RLS. Server-only singleton. Re-check authz in code.
+ *   • userClient(req)        — cookie-bound SSR client; RLS runs AS the signed-in user. PostgREST injects the JWT,
+ *                              so `core.current_user_id()` resolves with ZERO extra work (no SET LOCAL needed).
+ *   • bearerUserClient(jwt)  — same RLS-as-caller identity, but the JWT arrives in `Authorization: Bearer …`
+ *                              (mobile/Expo) instead of a cookie. Request-scoped; the token is never persisted.
+ *   • anonClient()           — anon role; RLS applies, no identity (public catalogue reads).
+ *   • adminClient()          — service role; BYPASSES RLS. Server-only singleton. Re-check authz in code.
  *
  * Cookie handling is the only Next.js-specific seam; it is injected so a non-Next host can supply its own.
  */
@@ -25,6 +27,20 @@ export function userClient(cookies: CookieAdapter): SupabaseClient {
       getAll: () => cookies.getAll(),
       setAll: (toSet) => cookies.setAll(toSet),
     },
+  })
+}
+
+/**
+ * Bearer-bound user client: the caller's JWT rides `Authorization: Bearer …` (mobile transport) instead of a
+ * cookie. Uses the ANON (publishable) key — NEVER the service-role/secret key — so PostgREST runs RLS as the
+ * user and `core.current_user_id()` resolves from the token. Request-scoped (no singleton); the token is never
+ * stored in cookies/local storage/logs.
+ */
+export function bearerUserClient(accessToken: string): SupabaseClient {
+  const env = supabaseEnv()
+  return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   })
 }
 

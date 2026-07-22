@@ -1,5 +1,26 @@
 # @deverjak/tenantkit-adapter-supabase
 
+## 0.6.0
+
+### Minor Changes
+
+- Add opt-in hybrid cookie / Bearer request authentication.
+
+  `createSupabaseRuntime({ requestAuth: { mode: 'cookie' | 'bearer' | 'cookie-or-bearer' } })` lets the same
+  Next.js Route Handlers authenticate a web session cookie **or** a Supabase access token in
+  `Authorization: Bearer …` (mobile/Expo). A single internal resolver picks the credential once per request, so
+  both the guard (`ctx.claims`) and the RLS DB scope (`ctx.db.user()`) always derive from the **same** credential.
+
+  - New `bearerUserClient(accessToken)` (anon key + `Authorization` header; never the service-role key) and the
+    `resolveRequestCredential` / `SupabaseRequestAuthMode` / `SupabaseRequestAuthOptions` exports.
+  - `IdentityProvider.getCurrentUser` server-verifies a Bearer token and returns `null` (→ `401`) for a
+    missing / expired / corrupt token; a malformed `Authorization` header never silently falls back to the cookie.
+  - A Bearer request emits **no `Set-Cookie`** — `SupabaseSessionStore.refresh()` no-ops for the mobile transport.
+  - The Supabase conformance harness is now real (was a `TODO` stub): the full port suite runs for **both** the
+    cookie and Bearer transports against real Postgres RLS, plus an integration security matrix.
+
+  **Default is unchanged:** `mode` defaults to `'cookie'`, so existing apps behave byte-for-byte as before.
+
 ## 0.3.0
 
 ### Minor Changes

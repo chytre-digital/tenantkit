@@ -6,8 +6,14 @@
  */
 import type { AuthSession, SessionStore } from '@deverjak/tenantkit-kernel'
 import { type CookieAdapter, readOnlyCookies, userClient } from './clients'
+import { type SupabaseRequestAuthOptions, normalizeRequestAuth, resolveRequestCredential } from './request-auth'
 
 export class SupabaseSessionStore implements SessionStore {
+  private readonly requestAuth: SupabaseRequestAuthOptions
+  constructor(requestAuth?: SupabaseRequestAuthOptions) {
+    this.requestAuth = normalizeRequestAuth(requestAuth)
+  }
+
   async read(req: Request): Promise<AuthSession | null> {
     const client = userClient(readOnlyCookies(cookiesFromRequest(req)))
     const { data } = await client.auth.getSession()
@@ -20,6 +26,12 @@ export class SupabaseSessionStore implements SessionStore {
   }
 
   async refresh(req: Request, res: Response): Promise<AuthSession | null> {
+    // A Bearer access token is a short-lived request credential owned by the mobile client — NOT a server-managed
+    // cookie session. For a Bearer request (or a malformed Authorization header on a bearer-enabled runtime) skip
+    // the refresh entirely: build no client, rotate nothing, and emit NO `Set-Cookie`. Mobile refresh is Expo's job.
+    const credential = resolveRequestCredential(req, this.requestAuth)
+    if (credential.kind === 'bearer' || credential.kind === 'invalid') return null
+
     const cookies = responseCookieAdapter(req, res)
     const client = userClient(cookies)
     const { data } = await client.auth.getUser() // rotates + sets refreshed cookies onto `res`
@@ -34,7 +46,8 @@ export class SupabaseSessionStore implements SessionStore {
   }
 }
 
-export const createSupabaseSessionStore = (): SupabaseSessionStore => new SupabaseSessionStore()
+export const createSupabaseSessionStore = (requestAuth?: SupabaseRequestAuthOptions): SupabaseSessionStore =>
+  new SupabaseSessionStore(requestAuth)
 
 function cookiesFromRequest(req: Request): { name: string; value: string }[] {
   const header = req.headers.get('cookie')

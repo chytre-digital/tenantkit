@@ -11,7 +11,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database, RequestDb, ScopedDb } from '@deverjak/tenantkit-kernel' // == packages/reservation-core/src/ports
-import { adminClient, anonClient, readOnlyCookies, userClient } from './clients'
+import { adminClient, anonClient, bearerUserClient, readOnlyCookies, userClient } from './clients'
+import { type SupabaseRequestAuthOptions, normalizeRequestAuth, resolveRequestCredential } from './request-auth'
 
 /** Concrete ScopedDb that also exposes `.client` — the escape hatch for idiomatic `.from()` on Supabase apps. */
 export class SupabaseScopedDb implements ScopedDb {
@@ -30,10 +31,25 @@ export class SupabaseScopedDb implements ScopedDb {
 }
 
 export class SupabaseDatabase implements Database {
+  private readonly requestAuth: SupabaseRequestAuthOptions
+  constructor(requestAuth?: SupabaseRequestAuthOptions) {
+    this.requestAuth = normalizeRequestAuth(requestAuth)
+  }
+
   forRequest(req: Request): RequestDb {
-    const cookies = readOnlyCookies(parseCookieHeader(req.headers.get('cookie')))
+    // Resolve the credential ONCE per request so `user()` never disagrees with the identity guard.
+    const credential = resolveRequestCredential(req, this.requestAuth)
+    const userClientForCredential = (): SupabaseClient => {
+      if (credential.kind === 'bearer') return bearerUserClient(credential.accessToken)
+      if (credential.kind === 'cookie') {
+        return userClient(readOnlyCookies(parseCookieHeader(req.headers.get('cookie'))))
+      }
+      // `invalid` (bad Bearer) or `anonymous` — NEVER fall back to the cookie; run unauthenticated so RLS
+      // sees no user. In the normal pipeline the identity guard has already produced a 401 before this runs.
+      return anonClient()
+    }
     return {
-      user: () => new SupabaseScopedDb(userClient(cookies)),
+      user: () => new SupabaseScopedDb(userClientForCredential()),
       anon: () => new SupabaseScopedDb(anonClient()),
       service: () => new SupabaseScopedDb(adminClient()),
     }
@@ -44,7 +60,8 @@ export class SupabaseDatabase implements Database {
   }
 }
 
-export const createSupabaseDatabase = (): SupabaseDatabase => new SupabaseDatabase()
+export const createSupabaseDatabase = (requestAuth?: SupabaseRequestAuthOptions): SupabaseDatabase =>
+  new SupabaseDatabase(requestAuth)
 
 function parseCookieHeader(header: string | null): { name: string; value: string }[] {
   if (!header) return []

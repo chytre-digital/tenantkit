@@ -9,23 +9,45 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AuthSession, AuthUser, IdentityProvider } from '@deverjak/tenantkit-kernel'
-import { type CookieAdapter, adminClient, userClient } from './clients'
+import { type CookieAdapter, adminClient, bearerUserClient, userClient } from './clients'
+import { type SupabaseRequestAuthOptions, normalizeRequestAuth, resolveRequestCredential } from './request-auth'
 
 export interface SupabaseIdentityDeps {
   /** A writable cookie adapter for the current request (the @deverjak/tenantkit-next binding backs this with next/headers). */
   cookies: () => Promise<CookieAdapter>
+  /** Which request transports authenticate (cookie / bearer / cookie-or-bearer). Defaults to `cookie`. */
+  requestAuth?: SupabaseRequestAuthOptions
 }
 
 export class SupabaseIdentity implements IdentityProvider {
-  constructor(private readonly deps: SupabaseIdentityDeps) {}
+  private readonly requestAuth: SupabaseRequestAuthOptions
+  constructor(private readonly deps: SupabaseIdentityDeps) {
+    this.requestAuth = normalizeRequestAuth(deps.requestAuth)
+  }
 
+  /** Cookie-bound client used by the web session flows (sign-in, magic link, OTP, OAuth, sign-out). */
   private async client(): Promise<SupabaseClient> {
     return userClient(await this.deps.cookies())
   }
 
-  async getCurrentUser(_req: Request): Promise<AuthUser | null> {
-    const { data } = await (await this.client()).auth.getUser()
-    return data.user ? toAuthUser(data.user) : null
+  async getCurrentUser(req: Request): Promise<AuthUser | null> {
+    const credential = resolveRequestCredential(req, this.requestAuth)
+
+    if (credential.kind === 'bearer') {
+      // Server-verify the mobile access token against GoTrue. Invalid / expired / revoked → null (→ 401).
+      // Never leak the raw Supabase auth error or the token itself to the response or logs.
+      const { data, error } = await bearerUserClient(credential.accessToken).auth.getUser(credential.accessToken)
+      if (error || !data.user) return null
+      return toAuthUser(data.user)
+    }
+
+    if (credential.kind === 'cookie') {
+      const { data } = await (await this.client()).auth.getUser()
+      return data.user ? toAuthUser(data.user) : null
+    }
+
+    // `invalid` (malformed Authorization on a bearer-enabled route) or `anonymous` → unauthenticated.
+    return null
   }
 
   async signInWithPassword(input: { email: string; password: string }): Promise<AuthSession> {

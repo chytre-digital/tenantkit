@@ -86,11 +86,75 @@ export const POST = withRoute(
 That's it. The session cookie carries the user's JWT, PostgREST sets `request.jwt.claims`, and the kernel's
 `core.current_user_id()` resolves automatically — **no `SET LOCAL`, no service key in the request path.**
 
+## Request authentication — web cookie + mobile Bearer
+
+By default the adapter authenticates the **web session cookie** — unchanged, zero config. To let a **mobile
+client** (Expo) call the *same* Route Handlers with a Supabase **access token**, opt in with `requestAuth`:
+
+| `mode` | Web session cookie | `Authorization: Bearer …` |
+|---|---|---|
+| `'cookie'` *(default)* | ✅ | ignored |
+| `'bearer'` | ignored | ✅ |
+| `'cookie-or-bearer'` | ✅ (fallback) | ✅ (**wins** when present) |
+
+```ts
+export const runtime = createSupabaseRuntime({
+  email,
+  cookies: nextCookies,
+  requestAuth: { mode: 'cookie-or-bearer' }, // web keeps cookies; mobile sends a Bearer token
+})
+```
+
+The **same** credential drives BOTH the guard (`ctx.claims`) and the RLS DB scope (`ctx.db.user()`), so they can
+never disagree. **Your Route Handlers don't change** — `withSlugRoute()` works identically for both transports:
+
+```ts
+export const GET = withSlugRoute(
+  { runtime, audience: 'staff', can: 'things:read' },
+  async (ctx) => {
+    // RLS as the Bearer/cookie caller — no service key in the request path.
+    const rows = await ctx.db.user().rpc('list_things', { tenant_id: ctx.tenantId })
+    return jsonOk({ rows })
+  },
+)
+```
+
+**Expo client** — send the access token; the mobile client owns login **and** refresh:
+
+```ts
+const { data } = await supabase.auth.getSession()
+const accessToken = data.session?.access_token
+if (!accessToken) throw new Error('sign in first') // guard: never send the string `Bearer undefined`
+
+await fetch(`${apiBaseUrl}/api/v1/t/${tenantSlug}/mobile/bootstrap`, {
+  headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+})
+```
+
+Guarantees:
+
+- **RLS everywhere.** The Bearer token rides `Authorization` on the **publishable/anon** key — *never* the
+  service-role key. Don't substitute `ctx.db.service()` for a user's domain query; it bypasses RLS.
+- **401, not 500.** A missing / expired / corrupt token → `401 UNAUTHORIZED`; a role/permission denial → `403`,
+  identically for cookie and Bearer.
+- **No cookies for mobile.** A Bearer request emits **no `Set-Cookie`**, and the server never refreshes it — the
+  Expo/Supabase client refreshes its own session. `signOut` stays a cookie/web concern (mobile clears locally).
+- **A malformed header never silently downgrades.** In a bearer-enabled mode a present-but-broken `Authorization`
+  header is treated as unauthenticated (`401`); it does **not** fall back to the cookie.
+
+**Migration:** the default is still `'cookie'` — existing apps are byte-for-byte unchanged until they opt in.
+
+> **Testing this adapter against real RLS:** the conformance suite runs the full port suite (cookie **and**
+> Bearer) plus a security matrix against a disposable Supabase project. See
+> [`src/__tests__/conformance.test.ts`](./src/__tests__/conformance.test.ts) and the fixtures it needs
+> ([`conformance.fixtures.sql`](./src/__tests__/conformance.fixtures.sql)); it self-skips without the
+> `SUPABASE_URL` / anon / service-role env, so the repo stays green offline.
+
 ## What each kernel port maps to
 
 | Kernel port | Supabase mapping |
 |---|---|
-| `Database.forRequest(req).user()` | cookie‑bound SSR client — RLS **as the caller** |
+| `Database.forRequest(req).user()` | RLS **as the caller** — from the request's JWT (session cookie *or* `Authorization: Bearer`, per `requestAuth`) |
 | `Database.forRequest(req).anon()` | anon client — public catalogue reads |
 | `Database.forRequest(req).service()` / `Database.service()` | service‑role client — **bypasses RLS** (webhooks/cron) |
 | `ScopedDb.rpc(fn, args)` | `supabase.rpc(...)` — your SECURITY DEFINER functions (e.g. `redeem_credit_into_session`) |

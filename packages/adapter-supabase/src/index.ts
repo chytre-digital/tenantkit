@@ -10,5 +10,12 @@ export { createSupabaseIdentity, SupabaseIdentity, type SupabaseIdentityDeps } f
 export { createSupabaseSessionStore, SupabaseSessionStore } from './session'
 export { createSupabaseAuthzStore, SupabaseAuthzStore } from './authz'
 export { createSupabaseStorage, SupabaseStorage } from './storage'
-export { type CookieAdapter, userClient, anonClient, adminClient, readOnlyCookies } from './clients'
+export { type CookieAdapter, userClient, bearerUserClient, anonClient, adminClient, readOnlyCookies } from './clients'
+export {
+  resolveRequestCredential,
+  normalizeRequestAuth,
+  type SupabaseRequestAuthMode,
+  type SupabaseRequestAuthOptions,
+  type RequestCredential,
+} from './request-auth'
 export { supabaseEnv, type SupabaseEnv } from './env'

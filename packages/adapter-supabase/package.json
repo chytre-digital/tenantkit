@@ -1,6 +1,6 @@
 {
   "name": "@deverjak/tenantkit-adapter-supabase",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Supabase reference adapter for @deverjak/tenantkit-kernel — Database, Identity, Session, Authz, Storage. Drop-in: createSupabaseRuntime() -> CoreRuntime.",
   "license": "MIT",
   "type": "module",

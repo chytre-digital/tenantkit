@@ -23,7 +23,11 @@ export interface AuthUser {
 
 /** Adapters: Supabase Auth (native), Auth.js/NextAuth, Lucia, or a custom GoTrue-compatible IdP. */
 export interface IdentityProvider {
-  /** Resolve the authenticated user from the incoming request (cookies/headers). Null = anonymous. */
+  /**
+   * Resolve the authenticated user from the incoming request. The adapter decides which transport(s) it honors:
+   * a session cookie (web) and/or an `Authorization: Bearer <token>` (mobile) — see the Supabase adapter's
+   * `requestAuth` option. Null = anonymous / unauthenticated (the route pipeline turns that into a 401).
+   */
   getCurrentUser(req: Request): Promise<AuthUser | null>
 
   /** Password sign-in → a session the SessionStore can persist. */
@@ -72,8 +76,9 @@ export interface SessionStore {
 /**
  * A handle whose statements run under a given role with `core.current_user_id()` resolved (RLS-enforced).
  * Refined while building the Supabase reference adapter (docs/14 §7): identity is REQUEST-scoped, not an
- * explicit actorId — Supabase derives it from the session cookie's JWT; a direct-driver adapter does
- * `SET LOCAL app.user_id` from the verified session. Hence `Database.forRequest(req)` below.
+ * explicit actorId — Supabase derives it from the request's JWT (session cookie OR `Authorization: Bearer`,
+ * per the adapter's `requestAuth` config); a direct-driver adapter does `SET LOCAL app.user_id` from the
+ * verified session. Hence `Database.forRequest(req)` below.
  */
 export interface ScopedDb {
   /** Call a SECURITY DEFINER / RPC function (e.g. redeem_credit_into_session, create_tenant_with_owner). */
@@ -90,7 +95,7 @@ export interface ScopedDb {
 
 /** The three role-scoped handles available within one HTTP request. */
 export interface RequestDb {
-  /** RLS-enforced AS the authenticated caller (Supabase: cookie JWT; pg: `SET LOCAL app.user_id`). */
+  /** RLS-enforced AS the authenticated caller (Supabase: the request's JWT — session cookie or Bearer token; pg: `SET LOCAL app.user_id`). */
   user(): ScopedDb
   /** `anon` role for public catalogue reads — RLS still applies, no identity. */
   anon(): ScopedDb
@@ -99,7 +104,7 @@ export interface RequestDb {
 }
 
 export interface Database {
-  /** Request-scoped handles; identity comes from the request's session/cookie. */
+  /** Request-scoped handles; identity comes from the request's credential (session cookie or Bearer JWT, per adapter config). */
   forRequest(req: Request): RequestDb
   /** Out-of-band service handle (cron jobs, scripts, tests) — no request; bypasses RLS. */
   service(): ScopedDb
