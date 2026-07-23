@@ -8,29 +8,38 @@
  * NOTE: core/public tables live in the `core`/`public` schemas. `core` must be added to Supabase's
  * "Exposed schemas" (Project → API) for `.schema('core')` to work — or wrap these in RPCs.
  */
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AuthzStore, ProfileRow, TenantSummary } from '@deverjak/tenantkit-kernel'
 import { adminClient } from './clients'
 
 export class SupabaseAuthzStore implements AuthzStore {
-  // Lazy: the service-role client (and its SUPABASE_SERVICE_ROLE_KEY requirement) resolves on FIRST USE, not at
-  // construction — so an anon-only app (public catalogue, family sign-in) can build a runtime without the key.
-  private get db() {
-    return adminClient()
+  // Client factory is injectable for tests; defaults to the lazy service-role singleton (resolved on FIRST USE,
+  // not at construction — so an anon-only app (public catalogue, family sign-in) can build a runtime without the
+  // SUPABASE_SERVICE_ROLE_KEY). Mirrors the pattern in storage.ts.
+  constructor(private readonly client: () => SupabaseClient = adminClient) {}
+
+  private get db(): SupabaseClient {
+    return this.client()
   }
 
   async ensureProfile(userId: string, email: string | null): Promise<ProfileRow> {
-    const { data } = await this.db.schema('core').from('profiles')
+    const { data, error } = await this.db.schema('core').from('profiles')
       .select('full_name, locale, avatar_url, phone').eq('id', userId).maybeSingle()
+    if (error) throw error
     if (data) {
       return { fullName: data.full_name, locale: data.locale, avatarUrl: data.avatar_url, phone: data.phone }
     }
     const fullName = email ? (email.split('@')[0] ?? null) : null
-    await this.db.schema('core').from('profiles').upsert({ id: userId, full_name: fullName }, { onConflict: 'id', ignoreDuplicates: true })
+    const { error: upsertError } = await this.db.schema('core').from('profiles')
+      .upsert({ id: userId, full_name: fullName }, { onConflict: 'id', ignoreDuplicates: true })
+    if (upsertError) throw upsertError
     return { fullName, locale: null, avatarUrl: null, phone: null }
   }
 
   async getMemberships(userId: string): Promise<Array<{ tenantId: string; role: string }>> {
-    const { data } = await this.db.schema('core').from('memberships').select('tenant_id, role').eq('user_id', userId)
+    const { data, error } = await this.db.schema('core').from('memberships').select('tenant_id, role').eq('user_id', userId)
+    // Fail-closed: `error != null` must always propagate — only a successful query with `data: []` means "no memberships".
+    if (error) throw error
     return (data ?? []).map((m) => ({ tenantId: m.tenant_id, role: m.role }))
   }
 
@@ -38,13 +47,14 @@ export class SupabaseAuthzStore implements AuthzStore {
     // Two service-role reads keyed by the already-verified userId (a user's OWN membership rows are safe to
     // read regardless of RLS). Reading tenants by id list — not a PostgREST embed — keeps it robust to schema
     // exposure quirks and mirrors the loaders this replaces in the consuming apps.
-    const { data: memberships } = await this.db.schema('core').from('memberships')
+    const { data: memberships, error: membershipsError } = await this.db.schema('core').from('memberships')
       .select('tenant_id, role').eq('user_id', userId)
+    // Surface transport/config errors (missing grant, unexposed schema) — must NOT masquerade as an empty list.
+    if (membershipsError) throw membershipsError
     if (!memberships || memberships.length === 0) return []
     const ids = memberships.map((m) => m.tenant_id)
     const { data: tenants, error } = await this.db.schema('core').from('tenants')
       .select('id, slug, name, tier').in('id', ids)
-    // Surface transport/config errors (missing grant, unexposed schema) — must NOT masquerade as an empty list.
     if (error) throw error
     const roleByTenant = new Map(memberships.map((m) => [m.tenant_id, m.role]))
     // Role is the app's own vocabulary — never fabricate one. Every tenant here came from a membership row, so a
@@ -60,19 +70,22 @@ export class SupabaseAuthzStore implements AuthzStore {
   }
 
   async getParticipantAccounts(userId: string): Promise<Array<{ participantId: string; tenantId: string; relation: string }>> {
-    const { data } = await this.db.schema('core').from('participant_accounts')
+    const { data, error } = await this.db.schema('core').from('participant_accounts')
       .select('participant_id, tenant_id, relation').eq('user_id', userId)
+    if (error) throw error
     return (data ?? []).map((p) => ({ participantId: p.participant_id, tenantId: p.tenant_id, relation: p.relation }))
   }
 
   async getPluginActivation(tenantId: string, pluginId: string): Promise<{ enabled: boolean } | null> {
-    const { data } = await this.db.schema('core').from('plugin_activations')
+    const { data, error } = await this.db.schema('core').from('plugin_activations')
       .select('is_enabled').eq('tenant_id', tenantId).eq('plugin_id', pluginId).maybeSingle()
+    if (error) throw error
     return data ? { enabled: data.is_enabled } : null
   }
 
   async getTenantTier(tenantId: string): Promise<string> {
-    const { data } = await this.db.schema('core').from('tenants').select('tier').eq('id', tenantId).single()
+    const { data, error } = await this.db.schema('core').from('tenants').select('tier').eq('id', tenantId).single()
+    if (error) throw error
     return data?.tier ?? 'free'
   }
 
